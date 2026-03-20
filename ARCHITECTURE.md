@@ -55,31 +55,62 @@ Sub-Sub-Agent (narrower scope, shorter lifetime)
 
 ## OVID Document Format
 
-```typescript
-interface Ovid {
-  // Identity
-  id: string;              // unique identifier (e.g., "clawdrey/reviewer-7f3a")
-  version: 1;              // format version
+OVIDs are JWTs (RFC 7519) signed with EdDSA (Ed25519). This means every OVID is a standard JWT that any JWT library can parse and verify — no custom serialization, no bespoke crypto.
 
-  // Role & Scope
-  role: string;            // "code-reviewer" | "coder" | "browser-worker" | etc.
-  scope: OvidScope;        // what this agent is permitted to do
+### JWT Header
 
-  // Provenance
-  issuer: string;          // parent agent's id
-  parentChain: string[];   // full chain: ["sarah", "clawdrey", "orchestrator"]
-  parentOvidId?: string;   // parent's OVID id (absent for primary agent)
-
-  // Lifetime
-  issuedAt: number;        // unix timestamp (seconds)
-  expiresAt: number;       // unix timestamp (seconds)
-
-  // Cryptographic binding
-  publicKey: string;       // this agent's Ed25519 public key (base64)
-  issuerPublicKey: string; // parent's Ed25519 public key (base64)
-  signature: string;       // Ed25519 signature over the canonical document (base64)
+```json
+{
+  "alg": "EdDSA",
+  "typ": "ovid+jwt",
+  "kid": "clawdrey-primary-2026"
 }
+```
 
+- `typ: "ovid+jwt"` distinguishes OVIDs from other JWTs in the ecosystem
+- `kid` identifies the signing key for rotation support
+
+### JWT Claims (Payload)
+
+```json
+{
+  "jti": "clawdrey/reviewer-7f3a",
+  "iss": "clawdrey",
+  "sub": "clawdrey/reviewer-7f3a",
+  "iat": 1711987200,
+  "exp": 1711989000,
+
+  "ovid_version": 1,
+  "role": "code-reviewer",
+  "scope": {
+    "tools": { "allow": ["read_file", "mcp_call"], "deny": ["exec", "write"] },
+    "shell": { "deny": ["rm", "curl"] },
+    "paths": { "allow": ["/Users/*/projects/repo-a/**"] }
+  },
+  "parent_chain": ["sarah", "clawdrey"],
+  "parent_ovid": "clawdrey/orchestrator-2b1c",
+  "agent_pub": "MCowBQYDK2VwAyEA..."
+}
+```
+
+Standard JWT claims:
+- `jti` — unique OVID identifier
+- `iss` — issuing (parent) agent's id
+- `sub` — this agent's id (same as `jti`)
+- `iat` — issued at (unix seconds)
+- `exp` — expires at (unix seconds)
+
+OVID-specific claims:
+- `ovid_version` — format version (1)
+- `role` — agent role label
+- `scope` — authorized tools, shell commands, API domains, filesystem paths
+- `parent_chain` — full delegation chain back to the human
+- `parent_ovid` — parent's OVID `jti` (absent for primary agent)
+- `agent_pub` — this agent's Ed25519 public key (for issuing derived OVIDs)
+
+### Scope Structure
+
+```typescript
 interface OvidScope {
   tools?: {
     allow?: string[];      // tool names or patterns (e.g., "read_file", "github/*")
@@ -101,16 +132,21 @@ interface OvidScope {
 }
 ```
 
-### Serialization
+### Why JWTs with Ed25519?
 
-OVIDs are serialized as JSON. The signature covers the canonical JSON encoding of all fields except `signature` itself (fields sorted alphabetically, no whitespace).
+**JWTs because:**
+- Every identity system speaks JWT — zero integration friction
+- Standard libraries in every language (jose, jsonwebtoken, nimbus, etc.)
+- The IIW/IETF community already has tooling, debuggers (jwt.io), and mental models
+- Cedarling (Gluu's WASM engine) already evaluates JWTs natively — free Carapace integration
+- Claims are extensible without breaking verifiers
 
-### Why Ed25519?
-
+**Ed25519 (EdDSA) because:**
 - **Fast:** ~30μs to sign, ~70μs to verify
 - **Small:** 32-byte keys, 64-byte signatures
 - **No infrastructure:** No CA, no certificate chains, no OCSP responders
-- **Widely available:** Node.js crypto, libsodium, every platform
+- **JOSE-standard:** EdDSA is registered in the IANA JOSE algorithms registry (RFC 8037)
+- **Quantum note:** Not post-quantum, but neither is anything else in practical JWT use today. OVIDs are short-lived (minutes, not years), so the window for quantum attack is minimal
 
 ---
 
@@ -154,6 +190,9 @@ const reviewerOvid = createOvid({
   },
   ttlSeconds: 1800,              // 30 minutes
 });
+
+// reviewerOvid.jwt is a standard JWT string:
+// eyJhbGciOiJFZERTQSIsInR5cCI6Im92aWQrand9.eyJqdGki...
 ```
 
 ### Verifying an OVID
@@ -161,7 +200,10 @@ const reviewerOvid = createOvid({
 ```typescript
 import { verifyOvid } from '@clawdreyhepburn/ovid';
 
-const result = verifyOvid(ovid, { trustedRoots: [primaryAgentPublicKey] });
+// Pass the JWT string — library handles EdDSA verification
+const result = verifyOvid(reviewerOvid.jwt, {
+  trustedRoots: [primaryAgentPublicKey]
+});
 
 if (result.valid) {
   console.log(result.principal);   // "clawdrey/reviewer-7f3a"
@@ -170,6 +212,10 @@ if (result.valid) {
   console.log(result.chain);       // ["sarah", "clawdrey"]
   console.log(result.expiresIn);   // seconds until expiry
 }
+
+// Any standard JWT library can also decode it:
+// jose.jwtVerify(reviewerOvid.jwt, parentPublicKey, { algorithms: ['EdDSA'] })
+```
 ```
 
 Verification checks:
@@ -275,7 +321,7 @@ OVID hooks into OpenClaw's sub-agent lifecycle:
 ## What This Is NOT
 
 - **Not a replacement for SPIFFE.** SPIFFE is an infrastructure-grade workload identity system. OVID is a lightweight agent credential for multi-agent orchestration. Different problem, different scale.
-- **Not a VC (Verifiable Credential).** OVIDs are not W3C VCs. They don't use JSON-LD, DID methods, or VC data model. They're purpose-built for agent-to-agent trust within a single deployment.
+- **Not a VC (Verifiable Credential).** OVIDs are not W3C VCs. They don't use JSON-LD, DID methods, or VC data model. They're standard JWTs with custom claims, purpose-built for agent-to-agent trust within a single deployment.
 - **Not authentication.** OVID is about authorization and provenance. It assumes the transport layer handles authentication (OpenClaw sessions, TLS, etc.).
 - **Not access control.** OVID provides identity and scope claims. Access control decisions are made by Cedar, OpenClaw's native tool policy, or your own code.
 
