@@ -150,22 +150,41 @@ interface OvidScope {
 
 ---
 
-## Role Taxonomy (v1)
+## Roles
 
-Roles are labels that map to default scope templates. They're a convenience — you can always override the scope directly.
+Roles are freeform strings. The OVID library does not define or enforce a role taxonomy — each deployment defines roles that make sense for its domain. An agent helping a software engineer will have different roles than one helping an accountant or an architect.
 
-| Role | Description | Default tool access | Default shell | Default API |
-|------|-------------|-------------------|---------------|-------------|
-| `architect` | Design and planning | read_file, web_search, web_fetch | none | any |
-| `coder` | Write and test code | read_file, write, edit, exec, process | git, npm, node, python | api.github.com |
-| `code-reviewer` | Review code, file issues | read_file, mcp_call(github/*) | git (read-only) | api.github.com |
-| `security-reviewer` | Security analysis | read_file, exec(static analysis only) | grep, rg, semgrep | none |
-| `browser-worker` | Web browsing tasks | browser, web_fetch | none | specified domains |
-| `social-media` | Social media engagement | web_fetch | none | api.x.com |
-| `research` | Information gathering | web_search, web_fetch, read_file | none | any |
-| `admin` | Full access (use sparingly) | all | all | all |
+The `role` claim is for **human readability and audit trails**. Authorization comes from the `scope`, not the role name. Cedar policies can reference either or both.
 
-Roles are not hierarchical — they're flat labels. Authorization comes from the scope, not the role name. The role is for human readability and audit trails.
+### Example: Software Engineering Agent
+
+| Role | Typical scope |
+|------|--------------|
+| `architect` | read files, search web, no code execution |
+| `coder` | read/write files, git, run tests, no deployment |
+| `code-reviewer` | read-only, file issues, no modifications |
+| `security-reviewer` | read-only, static analysis tools |
+| `browser-worker` | browser on specified domains, no exec |
+
+### Example: Accounting Agent
+
+| Role | Typical scope |
+|------|--------------|
+| `auditor` | read financial docs, query databases, no writes |
+| `bookkeeper` | read/write ledger entries, no bank API access |
+| `tax-preparer` | read all, write tax forms, submit to IRS API |
+| `reconciler` | read bank feeds + ledger, flag discrepancies |
+
+### Example: Creative Agent
+
+| Role | Typical scope |
+|------|--------------|
+| `researcher` | web search, read reference docs |
+| `drafter` | write files, no publish |
+| `editor` | read/write drafts, no publish |
+| `publisher` | read drafts, publish to CMS, post to social |
+
+**Scope templates** are an optional convenience. The library ships a few common templates (e.g., `readOnly`, `noExec`, `webOnly`) that you can use as starting points, but you're never required to use them.
 
 ---
 
