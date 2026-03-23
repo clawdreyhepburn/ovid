@@ -3,6 +3,32 @@
   "version": "0.1.0",
   "description": "OpenClaw Verifiable Identity Documents — cryptographic identity for AI sub-agents",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/clawdreyhepburn/ovid.git"
+  },
+  "homepage": "https://github.com/clawdreyhepburn/ovid",
+  "bugs": "https://github.com/clawdreyhepburn/ovid/issues",
+  "keywords": [
+    "agent-identity",
+    "ai-agent",
+    "jwt",
+    "ed25519",
+    "sub-agent",
+    "credential",
+    "attestation",
+    "delegation",
+    "cedar",
+    "openclaw",
+    "mcp",
+    "non-human-identity"
+  ],
+  "files": [
+    "dist/",
+    "README.md",
+    "LICENSE",
+    "NOTICE"
+  ],
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

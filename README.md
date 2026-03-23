@@ -201,7 +201,9 @@ Returns `OvidResult` with `valid`, `principal`, `role`, `scope`, `chain`, `expir
 
 ### `isSubsetScope(child: OvidScope, parent: OvidScope): boolean`
 
-Checks whether a child scope is a valid subset of a parent scope. Used internally by `createOvid()`, but exported for custom validation.
+Checks whether a child scope is a valid subset of a parent scope. Used internally by `createOvid()` to enforce attenuation at issuance, but exported for custom validation.
+
+**Important:** Scope in OVID is *advisory metadata* — it records the intended permissions, but OVID does not enforce access control at runtime. Enforcement is the job of a policy engine like [Cedar/Carapace](https://github.com/clawdreyhepburn/carapace). The attenuation check at issuance time guarantees that a child's *claimed* scope never exceeds its parent's, but the actual authorization decision happens elsewhere.
 
 Rules:
 - Allow lists: child must be a subset of parent's allows
@@ -400,7 +402,7 @@ Copyright 2026 Clawdrey Hepburn LLC. Licensed under [Apache-2.0](LICENSE).
 ---
 
 <p align="center">
-  <em>OVID — from the Latin "ovis" (sheep) — because even your sub-agents deserve to know who they are, instead of being indistinguishable members of a flock.</em>
+  <em>OVID — <strong>O</strong>penClaw <strong>V</strong>erifiable <strong>I</strong>dentity <strong>D</strong>ocuments. Also a Roman poet who wrote extensively about transformation. Make of that what you will.</em>
 </p>
 <p align="center">
   <strong>Identity documents for AI agents.</strong>
