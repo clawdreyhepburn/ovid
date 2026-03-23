@@ -1,0 +1,50 @@
+import { jwtVerify } from 'jose';
+import type { OvidResult, VerifyOvidOptions, OvidClaims } from './types.js';
+
+export async function verifyOvid(
+  jwt: string,
+  issuerPublicKey: CryptoKey,
+  options?: VerifyOvidOptions,
+): Promise<OvidResult> {
+  try {
+    const { payload } = await jwtVerify(jwt, issuerPublicKey, {
+      algorithms: ['EdDSA'],
+    });
+
+    const claims = payload as unknown as OvidClaims;
+
+    // Check ovid_version
+    if (claims.ovid_version !== 1) {
+      return invalid();
+    }
+
+    const now = Math.floor(Date.now() / 1000);
+    const expiresIn = claims.exp - now;
+
+    if (expiresIn <= 0) {
+      return invalid();
+    }
+
+    return {
+      valid: true,
+      principal: claims.sub,
+      role: claims.role,
+      scope: claims.scope,
+      chain: claims.parent_chain,
+      expiresIn,
+    };
+  } catch {
+    return invalid();
+  }
+}
+
+function invalid(): OvidResult {
+  return {
+    valid: false,
+    principal: '',
+    role: '',
+    scope: {},
+    chain: [],
+    expiresIn: 0,
+  };
+}
