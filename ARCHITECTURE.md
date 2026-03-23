@@ -1,311 +1,142 @@
 # OVID Architecture
-## OpenClaw Verifiable Identity Documents
 
-### The Problem
+## Overview
 
-When an AI agent spawns a sub-agent, the sub-agent inherits access it doesn't need. A browser worker can send tweets. A code reviewer can delete files. A research agent can execute shell commands.
+OVID (OpenClaw Verifiable Identity Documents) provides portable, cryptographically signed identity and mandate tokens for AI agent hierarchies. An OVID token answers two questions: **who is this agent?** and **what is it allowed to do?**
 
-Most multi-agent frameworks treat all agents in a swarm as equally trusted. That's not a security model — it's the absence of one.
+## Core Concepts
 
-### The Solution
+### Mandates, Not Roles
 
-OVID gives every sub-agent a cryptographically signed identity document at spawn time. The document asserts:
-
-- **Who** the agent is (unique identifier)
-- **What role** it plays (code-reviewer, browser-worker, etc.)
-- **Who created it** (the parent agent, forming a verifiable chain)
-- **When it expires** (bounded lifetime)
-
-The document is signed by the parent agent's private key and can be verified by anyone with the parent's public key. No central server. No infrastructure. The trust hierarchy IS the agent hierarchy.
-
-OVID is **pure identity**. It answers "who is this agent?" — not "what is this agent allowed to do?" Authorization decisions (tool access, resource permissions, API scoping) belong to the policy layer: Carapace/Cedar, OpenClaw's native tool policy, or your own code.
-
----
-
-## Trust Model
+Agents don't have roles. They have mandates — specific, task-scoped Cedar policy sets signed by their parent at spawn time. A mandate describes exactly what the agent is permitted to do, not what category it belongs to.
 
 ```
-Human (root of trust)
-  │
-  │ delegates authority to
-  ▼
-Primary Agent (long-lived, has keypair)
-  │
-  │ issues OVID to
-  ▼
-Sub-Agent (ephemeral, carries OVID)
-  │
-  │ can issue derived OVID to
-  ▼
-Sub-Sub-Agent (shorter lifetime)
+"You can read files in /src and /test, write to /test only, run npm test. Nothing else."
 ```
 
-**Core principles:**
-
-1. **The spawner is the attestor.** You trust a sub-agent because you trust the thing that created it, and that trust is cryptographically verifiable.
-
-2. **Lifetime can only shorten.** A sub-agent's OVID cannot outlive its parent's. When the parent expires, all descendants expire.
-
-3. **Identity is self-contained.** An OVID carries everything needed for verification. No database lookups, no central authority, no network calls.
-
-4. **The chain is the proof.** Each OVID embeds its full parent chain. Any verifier can walk the chain back to the root (primary agent) and confirm every signature.
-
----
-
-## OVID Document Format
-
-OVIDs are JWTs (RFC 7519) signed with EdDSA (Ed25519). This means every OVID is a standard JWT that any JWT library can parse and verify — no custom serialization, no bespoke crypto.
-
-### JWT Header
+This is expressed as a Cedar policy set embedded directly in the OVID token, following the [Cedar Profile for OAuth 2.0 Rich Authorization Requests](https://datatracker.ietf.org/doc/draft-cecchetti-oauth-rar-cedar/) format:
 
 ```json
 {
-  "alg": "EdDSA",
-  "typ": "ovid+jwt",
-  "kid": "clawdrey-primary-2026"
+  "mandate": {
+    "rarFormat": "cedar",
+    "policySet": "permit(principal, action == Ovid::Action::\"read_file\", resource) when { resource.path like \"/src/*\" || resource.path like \"/test/*\" }; permit(principal, action == Ovid::Action::\"write_file\", resource) when { resource.path like \"/test/*\" }; permit(principal, action == Ovid::Action::\"exec\", resource) when { resource.command == \"npm\" }; forbid(principal, action, resource);"
+  }
 }
 ```
 
-- `typ: "ovid+jwt"` distinguishes OVIDs from other JWTs in the ecosystem
-- `kid` identifies the signing key for rotation support
+### Two Enforcement Layers
 
-### JWT Claims (Payload)
+OVID is designed to work alongside a deployment-level policy engine (such as Carapace), not replace it:
 
-```json
-{
-  "jti": "clawdrey/reviewer-7f3a",
-  "iss": "clawdrey",
-  "sub": "clawdrey/reviewer-7f3a",
-  "iat": 1711987200,
-  "exp": 1711989000,
+| Layer | Who writes it | What it does | Scope |
+|-------|--------------|--------------|-------|
+| **Deployment policy** (e.g., Carapace) | Human operator | Defines the ceiling — absolute boundaries no agent can exceed | Deployment-wide |
+| **OVID mandate** | Parent agent | Defines the floor — task-specific constraints for this agent | Per-agent, portable |
 
-  "ovid_version": 1,
-  "role": "code-reviewer",
-  "parent_chain": ["sarah", "clawdrey"],
-  "parent_ovid": "clawdrey/orchestrator-2b1c",
-  "agent_pub": "MCowBQYDK2VwAyEA..."
-}
-```
+Both layers evaluate every tool call. Both must allow. A sub-agent is constrained by whichever is more restrictive.
 
-Standard JWT claims:
-- `jti` — unique OVID identifier
-- `iss` — issuing (parent) agent's id
-- `sub` — this agent's id (same as `jti`)
-- `iat` — issued at (unix seconds)
-- `exp` — expires at (unix seconds)
+### Issuance-Time Proof
 
-OVID-specific claims:
-- `ovid_version` — format version (1)
-- `role` — agent role label
-- `parent_chain` — full delegation chain back to the human
-- `parent_ovid` — parent's OVID `jti` (absent for primary agent)
-- `agent_pub` — this agent's Ed25519 public key (for issuing derived OVIDs)
+When a parent agent mints an OVID for a sub-agent, OVID verifies that the proposed mandate is a **provable subset** of the parent's effective permissions. This happens once at spawn time:
 
-### Why JWTs with Ed25519?
+1. OVID queries the parent's effective policy via a `PolicySource` interface
+2. OVID runs a formal subset proof: is every permission granted by the mandate also granted by the parent's policy?
+3. If provably yes → mint the OVID
+4. If not provable → refuse to mint (configuration error, not a runtime ambiguity)
 
-**JWTs because:**
-- Every identity system speaks JWT — zero integration friction
-- Standard libraries in every language (jose, jsonwebtoken, nimbus, etc.)
-- The IIW/IETF community already has tooling, debuggers (jwt.io), and mental models
-- Cedarling (Gluu's WASM engine) already evaluates JWTs natively — free Carapace integration
-- Claims are extensible without breaking verifiers
+This eliminates runtime ambiguity. If an OVID was minted, its mandate is guaranteed to be within the parent's bounds.
 
-**Ed25519 (EdDSA) because:**
-- **Fast:** ~30μs to sign, ~70μs to verify
-- **Small:** 32-byte keys, 64-byte signatures
-- **No infrastructure:** No CA, no certificate chains, no OCSP responders
-- **JOSE-standard:** EdDSA is registered in the IANA JOSE algorithms registry (RFC 8037)
-- **Quantum note:** Not post-quantum, but neither is anything else in practical JWT use today. OVIDs are short-lived (minutes, not years), so the window for quantum attack is minimal
+### PolicySource Interface
 
----
-
-## Roles
-
-Roles are freeform strings. The OVID library does not define or enforce a role taxonomy — each deployment defines roles that make sense for its domain. An agent helping a software engineer will have different roles than one helping an accountant or an architect.
-
-The `role` claim is for **identity and audit trails** — it says what kind of agent this is. Authorization decisions (which tools this role can use, which files it can access) are made by the policy layer (Cedar, OpenClaw tool policy, or your own code), not by OVID itself.
-
-### Example: Software Engineering Agent
-
-| Role | Description |
-|------|------------|
-| `architect` | designs systems, reviews structure |
-| `coder` | writes and tests code |
-| `code-reviewer` | reviews code, files issues |
-| `security-reviewer` | audits code for vulnerabilities |
-| `browser-worker` | interacts with web UIs |
-
-### Example: Accounting Agent
-
-| Role | Description |
-|------|------------|
-| `auditor` | reviews financial documents |
-| `bookkeeper` | manages ledger entries |
-| `tax-preparer` | prepares and files tax forms |
-| `reconciler` | reconciles bank feeds with ledger |
-
-### Example: Creative Agent
-
-| Role | Description |
-|------|------------|
-| `researcher` | gathers reference material |
-| `drafter` | writes initial drafts |
-| `editor` | revises and polishes drafts |
-| `publisher` | publishes finished work |
-
----
-
-## Operations
-
-### Issuing an OVID
+OVID doesn't know or care what provides the deployment-level policies. It depends on a single interface:
 
 ```typescript
-import { createOvid, generateKeypair } from '@clawdreyhepburn/ovid';
-
-// Primary agent creates its keypair once (persisted)
-const parentKeys = generateKeypair();
-
-// Spawn a sub-agent with a verifiable identity
-const reviewerOvid = createOvid({
-  issuerKeys: parentKeys,
-  issuerOvid: parentOvid,        // optional: absent for primary agent
-  role: 'code-reviewer',
-  ttlSeconds: 1800,              // 30 minutes
-});
-
-// reviewerOvid.jwt is a standard JWT string:
-// eyJhbGciOiJFZERTQSIsInR5cCI6Im92aWQrand9.eyJqdGki...
-```
-
-### Verifying an OVID
-
-```typescript
-import { verifyOvid } from '@clawdreyhepburn/ovid';
-
-// Pass the JWT string — library handles EdDSA verification
-const result = verifyOvid(reviewerOvid.jwt, {
-  trustedRoots: [primaryAgentPublicKey]
-});
-
-if (result.valid) {
-  console.log(result.principal);   // "clawdrey/reviewer-7f3a"
-  console.log(result.role);        // "code-reviewer"
-  console.log(result.chain);       // ["sarah", "clawdrey"]
-  console.log(result.expiresIn);   // seconds until expiry
-}
-
-// Any standard JWT library can also decode it:
-// jose.jwtVerify(reviewerOvid.jwt, parentPublicKey, { algorithms: ['EdDSA'] })
-```
-
-Verification checks:
-1. Signature is valid (Ed25519 verify against issuer's public key)
-2. Parent chain signatures are valid (walk the chain)
-3. Root of chain is in `trustedRoots`
-4. Not expired
-5. Lifetime does not exceed parent's lifetime
-
----
-
-## Revocation
-
-OVID uses **short-lived credentials** as the primary revocation mechanism:
-
-- Default TTL: 30 minutes (configurable per role)
-- Sub-agents are ephemeral — when the task ends, the OVID is meaningless
-- Parent can refuse to issue new OVIDs (soft revocation)
-
-For cases where immediate revocation is needed:
-
-- **Revocation list:** The issuing agent maintains an in-memory set of revoked OVID ids
-- **Cascade revocation:** Revoking a parent OVID implicitly revokes all descendants
-- No external infrastructure needed — the list lives in the issuing agent's process
-
----
-
-## Integration Points
-
-### Standalone (no Carapace)
-
-OVID works as a pure identity library. Your code issues and verifies identities, then makes its own authorization decisions:
-
-```typescript
-const ovid = verifyOvid(subagentOvid, { trustedRoots });
-if (!ovid.valid) throw new Error('Untrusted sub-agent');
-
-// OVID tells you WHO this agent is.
-// YOUR code (or Cedar) decides what it's allowed to do.
-if (ovid.role !== 'code-reviewer') {
-  throw new Error(`Role ${ovid.role} not authorized for this operation`);
+interface PolicySource {
+  /** Return the effective Cedar policy set for the given principal */
+  getEffectivePolicy(principal: string): Promise<string>
 }
 ```
 
-### With Carapace (Cedar integration)
+Carapace can implement this. So can a static file, a remote policy server, or anything else that can produce Cedar policy text. OVID is standalone.
 
-When used with Carapace, OVID identity claims flow into the Cedar evaluation context. OVID provides the **principal identity**; Cedar policies make the **authorization decision**:
+## Token Format
 
-```cedar
-// Cedar uses OVID identity to authorize actions
-permit(
-  principal is Agent,
-  action == Action::"execute",
-  resource == Tool::"read_file"
-) when {
-  principal.role == "code-reviewer" &&
-  principal has parentChain &&
-  principal.parentChain.contains("clawdrey")
-};
+OVID tokens are JWTs (EdDSA/Ed25519) carrying identity + mandate:
 
-// Cedar controls tool access — not OVID
-forbid(
-  principal is Agent,
-  action == Action::"execute",
-  resource == Tool::"exec"
-) when {
-  principal.role == "code-reviewer"
-};
+```
+Header: { "typ": "ovid+jwt", "alg": "EdDSA" }
+Payload: {
+  "iss": "<parent agent ID>",
+  "sub": "<this agent's ID>",
+  "iat": <issued-at>,
+  "exp": <expiry>,
+  "ovid_version": "0.2.0",
+  "parent_chain": ["root", "parent"],
+  "parent_ovid": "<parent's OVID JWT, if not root>",
+  "agent_pub": "<this agent's Ed25519 public key, base64>",
+  "mandate": {
+    "rarFormat": "cedar",
+    "policySet": "<Cedar policy text>"
+  }
+}
 ```
 
-The `ovid-cedar` adapter maps OVID identity fields to Cedar entity attributes:
+### Key Claims
 
-| OVID field | Cedar attribute | Type |
-|-----------|----------------|------|
-| `id` | `principal` | `Agent::"<id>"` |
-| `role` | `principal.role` | String |
-| `parentChain` | `principal.parentChain` | Set<String> |
-| `issuer` | `principal.issuer` | String |
-| `expiresAt` | `principal.expiresAt` | Long |
+- **`iss`** — the parent who signed this token
+- **`sub`** — this agent's identity
+- **`parent_chain`** — full delegation chain back to the root (human)
+- **`agent_pub`** — this agent's public key (for signing child OVIDs)
+- **`mandate`** — Cedar policy set defining what this agent can do
 
-Authorization attributes (allowed tools, permitted paths, API access) are defined in Cedar policies and entities — not in the OVID itself.
+### Why Embedded Policies
 
-### With OpenClaw
+The mandate is embedded as plain text, not a URL. Sub-agents are ephemeral (often seconds to minutes), may cross domain boundaries, and must not depend on network availability for enforcement. The token is self-contained: any verifier needs only the token and the parent's public key.
 
-OVID hooks into OpenClaw's sub-agent lifecycle:
+Mandate format follows [draft-cecchetti-oauth-rar-cedar](https://datatracker.ietf.org/doc/draft-cecchetti-oauth-rar-cedar/) for interoperability with OAuth 2.0 ecosystems.
 
-1. **At spawn time:** Before `sessions_spawn` executes, generate an OVID for the sub-agent based on the requested role
-2. **In the sub-agent's context:** The OVID is injected as session metadata, providing verifiable identity to any policy enforcement layer
-3. **At tool execution time:** Carapace evaluates Cedar policies using the OVID principal's identity claims (role, chain, issuer) to decide whether the action is permitted
-4. **At completion:** The OVID expires naturally or is revoked when the sub-agent session ends
+## Cryptographic Identity
 
----
+The identity chain serves two purposes:
 
-## What This Is NOT
+1. **Provenance**: Prove that this agent was spawned by a specific parent, all the way back to the human root
+2. **Mandate trust**: The mandate is only meaningful because it's signed by a known parent — without the signature, it's an unsigned JSON blob anyone could forge
 
-- **Not a replacement for SPIFFE.** SPIFFE is an infrastructure-grade workload identity system. OVID is a lightweight agent credential for multi-agent orchestration. Different problem, different scale.
-- **Not a VC (Verifiable Credential).** OVIDs are not W3C VCs. They don't use JSON-LD, DID methods, or VC data model. They're standard JWTs with custom claims, purpose-built for agent-to-agent trust within a single deployment.
-- **Not authentication.** OVID is about identity and provenance. It assumes the transport layer handles authentication (OpenClaw sessions, TLS, etc.).
-- **Not authorization.** OVID provides identity claims — who this agent is, what role it plays, who vouches for it. Authorization decisions (what tools it can use, what files it can access) belong to Cedar, OpenClaw's native tool policy, or your own code. Identity is not authorization.
+Each agent holds an Ed25519 keypair. The parent signs the child's OVID (including the child's public key). The child can then sign OVIDs for its own sub-agents, with mandates that are provable subsets of its own mandate.
 
----
+## Enforcement Flow
 
-## Security Considerations
+```
+Spawn time:
+  Parent writes mandate (Cedar policy set)
+  → OVID queries PolicySource for parent's effective policy
+  → Subset proof: mandate ⊆ parent's policy?
+  → If proven: mint OVID token
+  → If not: refuse (error)
 
-1. **Private key storage:** The primary agent's Ed25519 private key must be protected. It's the root of trust for all OVIDs. Store it in the agent's credential directory with restricted permissions.
+Runtime (every tool call):
+  Agent requests action
+  → OVID evaluates action against mandate → allow/deny
+  → Deployment engine evaluates action against ceiling → allow/deny
+  → Both must allow
+```
 
-2. **Key rotation:** Primary agent keys should be rotated periodically. Old keys go into a `previousKeys` set for verifying OVIDs issued before rotation. Rotation frequency depends on deployment — monthly is reasonable.
+## Audit
 
-3. **Identity is not authorization.** OVID tells you who an agent is; it does not tell you what that agent is allowed to do. A verified OVID with role "code-reviewer" is not itself a grant of any permissions — the policy layer must map that identity to concrete access decisions. Deploying OVID without a policy layer (Cedar, OpenClaw tool policy, or equivalent) means identity is informational only.
+OVID provides append-only audit logging:
 
-4. **Time-based attacks:** OVIDs rely on system clock for expiry. In a single-machine deployment (typical for OpenClaw), clock skew isn't a concern. For distributed deployments, use conservative TTLs.
+- **Tier 1**: JSONL file logger (opt-in via `OVID_AUDIT_LOG` env var)
+- **Tier 2**: SQLite database with structured queries (issuance, decisions, chains)
+- **Tier 3**: Web dashboard with timeline, delegation tree, Sankey flow, policy usage, action breakdown
 
-5. **Chain depth:** Deep chains (>3 levels) are hard to audit. The library warns on chains deeper than 3 and rejects chains deeper than 5 by default (configurable).
+Every OVID issuance and mandate evaluation is recorded for forensics.
+
+## Design Principles
+
+1. **Self-contained tokens**: No external dependencies for verification or enforcement
+2. **Mandate, not role**: Task-specific policies, not categorical labels
+3. **Issuance-time proof**: Verify attenuation once at spawn, not per-request
+4. **Interface, not implementation**: OVID depends on `PolicySource`, not on any specific policy engine
+5. **Short-lived by default**: Credentials expire in ~30 minutes; revocation via TTL, not CRL
+6. **Portable across domains**: OVID tokens work anywhere the verifier has the parent's public key
