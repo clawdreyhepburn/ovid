@@ -1,5 +1,6 @@
 import { SignJWT } from 'jose';
 import { generateKeypair, exportPublicKeyBase64 } from './keys.js';
+import { validateCedarSyntax } from './validate.js';
 import type { CreateOvidOptions, OvidToken, OvidClaims } from './types.js';
 
 const DEFAULT_TTL = 1800;
@@ -17,6 +18,11 @@ export async function createOvid(options: CreateOvidOptions): Promise<OvidToken>
 
   if (!mandate || mandate.rarFormat !== 'cedar' || !mandate.policySet) {
     throw new Error('mandate is required with rarFormat "cedar" and a non-empty policySet');
+  }
+
+  const syntaxResult = validateCedarSyntax(mandate.policySet);
+  if (!syntaxResult.valid) {
+    throw new Error(`Invalid Cedar policy syntax: ${syntaxResult.error}`);
   }
 
   const parentClaims = issuerOvid?.claims;

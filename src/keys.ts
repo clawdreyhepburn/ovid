@@ -1,4 +1,4 @@
-import { generateKeyPair, exportJWK } from 'jose';
+import { generateKeyPair, exportJWK, importJWK } from 'jose';
 import type { KeyPair } from './types.js';
 
 export async function generateKeypair(): Promise<KeyPair> {
@@ -10,4 +10,9 @@ export async function exportPublicKeyBase64(publicKey: KeyPair['publicKey']): Pr
   const jwk = await exportJWK(publicKey);
   // x is the raw public key in base64url
   return jwk.x!;
+}
+
+export async function importPublicKeyBase64(base64: string): Promise<CryptoKey> {
+  const jwk = { kty: 'OKP', crv: 'Ed25519', x: base64 };
+  return importJWK(jwk, 'EdDSA') as Promise<CryptoKey>;
 }

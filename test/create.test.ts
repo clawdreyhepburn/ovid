@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { createOvid, generateKeypair, verifyOvid } from '../src/index.js';
+import { createOvid, generateKeypair, verifyOvid, validateCedarSyntax } from '../src/index.js';
 import type { CedarMandate } from '../src/types.js';
 
 const testMandate: CedarMandate = {
@@ -116,5 +116,89 @@ describe('createOvid', () => {
       mandate: testMandate,
       ttlSeconds: 600,
     })).rejects.toThrow('Chain depth');
+  });
+
+  it('rejects policy with no permit or forbid', async () => {
+    const keys = await generateKeypair();
+    await expect(createOvid({
+      issuerKeys: keys,
+      mandate: { rarFormat: 'cedar', policySet: 'not cedar at all' },
+      issuer: 'root',
+    })).rejects.toThrow('Invalid Cedar policy syntax');
+  });
+
+  it('rejects policy missing semicolons', async () => {
+    const keys = await generateKeypair();
+    await expect(createOvid({
+      issuerKeys: keys,
+      mandate: { rarFormat: 'cedar', policySet: 'permit(principal, action, resource)' },
+      issuer: 'root',
+    })).rejects.toThrow('Invalid Cedar policy syntax');
+  });
+
+  it('rejects policy with unmatched parens', async () => {
+    const keys = await generateKeypair();
+    await expect(createOvid({
+      issuerKeys: keys,
+      mandate: { rarFormat: 'cedar', policySet: 'permit(principal, action, resource;' },
+      issuer: 'root',
+    })).rejects.toThrow('Invalid Cedar policy syntax');
+  });
+
+  it('accepts multiple valid policies', async () => {
+    const keys = await generateKeypair();
+    const multiPolicy = `
+      permit(principal, action == Ovid::Action::"read_file", resource);
+      forbid(principal, action == Ovid::Action::"exec", resource);
+    `;
+    const ovid = await createOvid({
+      issuerKeys: keys,
+      mandate: { rarFormat: 'cedar', policySet: multiPolicy },
+      issuer: 'root',
+    });
+    expect(ovid.jwt).toContain('.');
+  });
+});
+
+describe('validateCedarSyntax', () => {
+  it('valid policy passes', () => {
+    const result = validateCedarSyntax('permit(principal, action, resource);');
+    expect(result.valid).toBe(true);
+  });
+
+  it('empty string rejected', () => {
+    const result = validateCedarSyntax('');
+    expect(result.valid).toBe(false);
+  });
+
+  it('"not cedar at all" rejected', () => {
+    const result = validateCedarSyntax('not cedar at all');
+    expect(result.valid).toBe(false);
+  });
+
+  it('missing semicolons rejected', () => {
+    const result = validateCedarSyntax('permit(principal, action, resource)');
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain('semicolon');
+  });
+
+  it('unmatched parens rejected', () => {
+    const result = validateCedarSyntax('permit(principal, action, resource;');
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain('parenthesis');
+  });
+
+  it('unmatched quotes rejected', () => {
+    const result = validateCedarSyntax('permit(principal, action == "read, resource);');
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain('quote');
+  });
+
+  it('multiple valid policies pass', () => {
+    const result = validateCedarSyntax(`
+      permit(principal, action == Ovid::Action::"read_file", resource);
+      forbid(principal, action == Ovid::Action::"exec", resource);
+    `);
+    expect(result.valid).toBe(true);
   });
 });
