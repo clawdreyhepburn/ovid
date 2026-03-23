@@ -248,6 +248,53 @@ export class AuditDatabase {
     return { unproven, deepChains, rapidSpawning };
   }
 
+  getRoleBreakdown(from?: number, to?: number): unknown[] {
+    const tw = this.timeWhere(from, to);
+    return this.db.prepare(`
+      SELECT o.role, d.decision, COUNT(*) as count
+      FROM decisions d LEFT JOIN ovids o ON d.agent_jti = o.jti
+      WHERE 1=1${tw.clause}
+      GROUP BY o.role, d.decision ORDER BY count DESC
+    `).all(...tw.params);
+  }
+
+  getRoleActivity(from?: number, to?: number): unknown[] {
+    const tw = this.timeWhere(from, to);
+    return this.db.prepare(`
+      SELECT o.role,
+        COUNT(DISTINCT d.agent_jti) as agent_count,
+        COUNT(*) as decision_count,
+        SUM(CASE WHEN d.decision = 'deny' THEN 1 ELSE 0 END) as deny_count,
+        SUM(CASE WHEN d.decision = 'allow-proven' THEN 1 ELSE 0 END) as proven_count,
+        SUM(CASE WHEN d.decision = 'allow-unproven' THEN 1 ELSE 0 END) as unproven_count,
+        MIN(d.timestamp) as first_seen,
+        MAX(d.timestamp) as last_seen
+      FROM decisions d LEFT JOIN ovids o ON d.agent_jti = o.jti
+      WHERE 1=1${tw.clause}
+      GROUP BY o.role ORDER BY decision_count DESC
+    `).all(...tw.params);
+  }
+
+  getRoleTimeline(from?: number, to?: number): unknown[] {
+    const tw = this.timeWhere(from, to);
+    return this.db.prepare(`
+      SELECT (d.timestamp / 3600) * 3600 as hour, o.role, COUNT(*) as count
+      FROM decisions d LEFT JOIN ovids o ON d.agent_jti = o.jti
+      WHERE 1=1${tw.clause}
+      GROUP BY hour, o.role ORDER BY hour
+    `).all(...tw.params);
+  }
+
+  getRoleActions(role: string, from?: number, to?: number): unknown[] {
+    const tw = this.timeWhere(from, to);
+    return this.db.prepare(`
+      SELECT d.action, d.decision, COUNT(*) as count
+      FROM decisions d LEFT JOIN ovids o ON d.agent_jti = o.jti
+      WHERE o.role = ?${tw.clause}
+      GROUP BY d.action, d.decision ORDER BY count DESC
+    `).all(role, ...tw.params);
+  }
+
   getDecisionsByDepth(from?: number, to?: number): unknown[] {
     const tw = this.timeWhere(from, to);
     return this.db.prepare(`

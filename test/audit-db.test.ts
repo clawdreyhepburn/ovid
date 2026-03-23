@@ -146,6 +146,36 @@ describe('AuditDatabase', () => {
     expect(sankey.links.length).toBeGreaterThan(0);
   });
 
+  it('getRoleActivity breaks down by role', () => {
+    db.recordIssuance({ jti: 'r1', iss: 'root', role: 'code-reviewer', parent_chain: [], iat: 1000, exp: 2000 });
+    db.recordIssuance({ jti: 'r2', iss: 'root', role: 'code-reviewer', parent_chain: [], iat: 1000, exp: 2000 });
+    db.recordIssuance({ jti: 'b1', iss: 'root', role: 'browser-worker', parent_chain: [], iat: 1000, exp: 2000 });
+    db.recordDecision('r1', 'read_file', '/src', 'allow-proven');
+    db.recordDecision('r2', 'read_file', '/lib', 'allow-proven');
+    db.recordDecision('r2', 'exec', 'git', 'deny');
+    db.recordDecision('b1', 'use_tool', 'browser', 'allow-unproven');
+    const roles = db.getRoleActivity() as any[];
+    expect(roles.length).toBe(2);
+    const reviewer = roles.find(r => r.role === 'code-reviewer');
+    expect(reviewer.agent_count).toBe(2);
+    expect(reviewer.decision_count).toBe(3);
+    expect(reviewer.deny_count).toBe(1);
+    const worker = roles.find(r => r.role === 'browser-worker');
+    expect(worker.agent_count).toBe(1);
+    expect(worker.unproven_count).toBe(1);
+  });
+
+  it('getRoleActions shows actions for a specific role', () => {
+    db.recordIssuance({ jti: 'a1', iss: 'root', role: 'coder', parent_chain: [], iat: 1000, exp: 2000 });
+    db.recordDecision('a1', 'read_file', '/src', 'allow-proven');
+    db.recordDecision('a1', 'exec', 'npm test', 'allow-proven');
+    db.recordDecision('a1', 'exec', 'rm -rf', 'deny');
+    const actions = db.getRoleActions('coder') as any[];
+    expect(actions.length).toBe(3);
+    const deny = actions.find(a => a.decision === 'deny');
+    expect(deny.action).toBe('exec');
+  });
+
   it('getTopAgents respects limit', () => {
     for (let i = 0; i < 5; i++) {
       db.recordIssuance({ jti: `a${i}`, iss: 'root', role: 'worker', parent_chain: [], iat: 1000, exp: 2000 });

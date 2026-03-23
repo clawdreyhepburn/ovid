@@ -93,6 +93,15 @@ export class DashboardServer {
         data = this.db.getSankeyData(from, to);
       } else if (route === 'depth') {
         data = this.db.getDecisionsByDepth(from, to);
+      } else if (route === 'roles') {
+        data = this.db.getRoleActivity(from, to);
+      } else if (route === 'roles/breakdown') {
+        data = this.db.getRoleBreakdown(from, to);
+      } else if (route === 'roles/timeline') {
+        data = this.db.getRoleTimeline(from, to);
+      } else if (route.startsWith('roles/') && !route.includes('/')) {
+        const role = decodeURIComponent(route.slice(6));
+        data = this.db.getRoleActions(role, from, to);
       } else if (route === 'import' && req.method === 'POST') {
         // Simple: read body as path to JSONL file
         let body = '';

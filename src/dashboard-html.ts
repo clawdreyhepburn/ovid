@@ -106,7 +106,10 @@ export function dashboardHtml(): string {
   .donut-wrap { display: flex; align-items: center; gap: 16px; }
   .donut-legend { font-size: 12px; }
   .donut-legend div { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
-  .donut-legend .swatch { width: 12px; height: 12px; border-radius: 2px; }
+  .donut-legend .swatch, .swatch { display: inline-block; width: 12px; height: 12px; border-radius: 2px; vertical-align: middle; margin-right: 4px; }
+  .role-badge { background: var(--border); color: var(--gold); padding: 2px 8px; border-radius: 4px; font-size: 0.85rem; font-family: monospace; cursor: pointer; }
+  .role-badge:hover { background: var(--gold); color: var(--bg); }
+  .clickable-row { cursor: pointer; } .clickable-row:hover { background: rgba(196,168,124,0.1); }
 
   /* Sankey */
   .sankey-wrap svg { width: 100%; min-height: 300px; }
@@ -184,6 +187,18 @@ export function dashboardHtml(): string {
     </div>
     <div class="stream" id="decisionStream"></div>
     <button class="load-more" id="loadMore">Load More</button>
+  </div>
+
+  <!-- Role Breakdown -->
+  <div class="row row-2">
+    <div class="panel" style="flex:2">
+      <h2>Role Breakdown</h2>
+      <div id="roleBreakdown"></div>
+    </div>
+    <div class="panel" style="flex:1">
+      <h2>Role Activity Over Time</h2>
+      <div id="roleTimeline"></div>
+    </div>
   </div>
 
   <!-- Bottom row: Policy Usage, Action Breakdown, Sankey -->
@@ -604,8 +619,88 @@ export function dashboardHtml(): string {
 
   function debounce(fn, ms) { let t; return function() { clearTimeout(t); t = setTimeout(fn, ms); }; }
 
+  // Role Breakdown
+  async function loadRoles() {
+    const data = await api('roles');
+    const el = document.getElementById('roleBreakdown');
+    if (!data || !data.length) { el.innerHTML = '<em style="color:var(--muted)">No role data</em>'; return; }
+    let html = '<table class="leader-table"><thead><tr><th>Role</th><th>Agents</th><th>Decisions</th><th>Proven</th><th>Unproven</th><th>Denied</th><th>Deny %</th></tr></thead><tbody>';
+    for (const r of data) {
+      const total = r.decision_count || 1;
+      const denyPct = ((r.deny_count / total) * 100).toFixed(1);
+      const denyColor = r.deny_count > 0 ? 'var(--red)' : 'var(--muted)';
+      html += '<tr class="clickable-row" onclick="showRoleDetail(\'' + encodeURIComponent(r.role) + '\')">' +
+        '<td><span class="role-badge">' + (r.role || 'unknown') + '</span></td>' +
+        '<td>' + r.agent_count + '</td>' +
+        '<td>' + r.decision_count + '</td>' +
+        '<td style="color:var(--tiffany)">' + (r.proven_count || 0) + '</td>' +
+        '<td style="color:var(--yellow)">' + (r.unproven_count || 0) + '</td>' +
+        '<td style="color:' + denyColor + '">' + (r.deny_count || 0) + '</td>' +
+        '<td style="color:' + denyColor + '">' + denyPct + '%</td></tr>';
+    }
+    html += '</tbody></table>';
+    el.innerHTML = html;
+  }
+
+  // Role Activity Over Time
+  async function loadRoleTimeline() {
+    const data = await api('roles/timeline');
+    const el = document.getElementById('roleTimeline');
+    if (!data || !data.length) { el.innerHTML = '<em style="color:var(--muted)">No data</em>'; return; }
+    // Group by role, plot stacked bars per hour
+    const roles = [...new Set(data.map(d => d.role || 'unknown'))];
+    const hours = [...new Set(data.map(d => d.hour))].sort((a,b) => a - b);
+    const roleColors = ['#81d8d0','#c4a87c','#e06060','#d4bc96','#60a0e0','#b090d0','#60c080','#e0a060'];
+    const byHourRole = new Map();
+    data.forEach(d => byHourRole.set(d.hour + ':' + (d.role||'unknown'), d.count));
+    const maxPerHour = hours.map(h => roles.reduce((s, r) => s + (byHourRole.get(h+':'+r) || 0), 0));
+    const maxVal = Math.max(...maxPerHour, 1);
+    const W = 400, H = 200, pad = 40;
+    const barW = Math.max(2, Math.min(20, (W - pad * 2) / hours.length - 1));
+    let svg = '<svg width="100%" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="xMidYMid meet">';
+    // Y axis
+    svg += '<line x1="' + pad + '" y1="10" x2="' + pad + '" y2="' + (H-pad) + '" stroke="var(--border)" stroke-width="1"/>';
+    hours.forEach((h, i) => {
+      const x = pad + i * ((W - pad * 2) / hours.length);
+      let y = H - pad;
+      roles.forEach((r, ri) => {
+        const val = byHourRole.get(h + ':' + r) || 0;
+        if (val > 0) {
+          const barH = (val / maxVal) * (H - pad - 10);
+          y -= barH;
+          svg += '<rect x="' + x + '" y="' + y + '" width="' + barW + '" height="' + barH + '" fill="' + roleColors[ri % roleColors.length] + '" opacity="0.85"><title>' + r + ': ' + val + ' @ ' + new Date(h*1000).toLocaleTimeString() + '</title></rect>';
+        }
+      });
+    });
+    svg += '</svg>';
+    // Legend
+    let legend = '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px">';
+    roles.forEach((r, i) => {
+      legend += '<div style="font-size:0.8rem"><span class="swatch" style="background:' + roleColors[i % roleColors.length] + '"></span>' + r + '</div>';
+    });
+    legend += '</div>';
+    el.innerHTML = svg + legend;
+  }
+
+  // Role detail modal
+  window.showRoleDetail = async function(encodedRole) {
+    const role = decodeURIComponent(encodedRole);
+    const data = await api('roles/' + encodedRole);
+    if (!data) return;
+    const modal = document.getElementById('agentModal');
+    document.getElementById('modalTitle').textContent = 'Role: ' + role;
+    let html = '<table class="leader-table"><thead><tr><th>Action</th><th>Decision</th><th>Count</th></tr></thead><tbody>';
+    for (const r of data) {
+      const color = r.decision === 'deny' ? 'var(--red)' : r.decision === 'allow-proven' ? 'var(--tiffany)' : 'var(--yellow)';
+      html += '<tr><td>' + r.action + '</td><td style="color:' + color + '">' + r.decision + '</td><td>' + r.count + '</td></tr>';
+    }
+    html += '</tbody></table>';
+    document.getElementById('modalContent').innerHTML = html;
+    modal.classList.add('active');
+  };
+
   async function refreshAll() {
-    await Promise.all([loadOverview(), loadTimeline(), loadLeaderboard(), loadStream(false), loadPolicies(), loadActions(), loadSankey(), loadActionOptions(), loadTree()]);
+    await Promise.all([loadOverview(), loadTimeline(), loadLeaderboard(), loadStream(false), loadPolicies(), loadActions(), loadSankey(), loadActionOptions(), loadTree(), loadRoles(), loadRoleTimeline()]);
   }
 
   // Initial load (default: last hour)
