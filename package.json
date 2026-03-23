@@ -44,9 +44,13 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "better-sqlite3": "^12.8.0",
+    "express": "^5.2.1",
     "jose": "^6.0.0"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/express": "^5.0.6",
     "@types/node": "^25.5.0",
     "typescript": "^5.7.0",
     "vitest": "^3.0.0"
