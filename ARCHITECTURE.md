@@ -13,11 +13,12 @@ OVID gives every sub-agent a cryptographically signed identity document at spawn
 
 - **Who** the agent is (unique identifier)
 - **What role** it plays (code-reviewer, browser-worker, etc.)
-- **What scope** it has (which resources, tools, or domains)
 - **Who created it** (the parent agent, forming a verifiable chain)
 - **When it expires** (bounded lifetime)
 
 The document is signed by the parent agent's private key and can be verified by anyone with the parent's public key. No central server. No infrastructure. The trust hierarchy IS the agent hierarchy.
+
+OVID is **pure identity**. It answers "who is this agent?" — not "what is this agent allowed to do?" Authorization decisions (tool access, resource permissions, API scoping) belong to the policy layer: Carapace/Cedar, OpenClaw's native tool policy, or your own code.
 
 ---
 
@@ -36,20 +37,18 @@ Sub-Agent (ephemeral, carries OVID)
   │
   │ can issue derived OVID to
   ▼
-Sub-Sub-Agent (narrower scope, shorter lifetime)
+Sub-Sub-Agent (shorter lifetime)
 ```
 
 **Core principles:**
 
 1. **The spawner is the attestor.** You trust a sub-agent because you trust the thing that created it, and that trust is cryptographically verifiable.
 
-2. **Scope can only narrow.** A sub-agent's permissions must be a subset of its parent's. Escalation is structurally impossible — the library rejects any OVID that exceeds its parent's scope.
+2. **Lifetime can only shorten.** A sub-agent's OVID cannot outlive its parent's. When the parent expires, all descendants expire.
 
-3. **Lifetime can only shorten.** A sub-agent's OVID cannot outlive its parent's. When the parent expires, all descendants expire.
+3. **Identity is self-contained.** An OVID carries everything needed for verification. No database lookups, no central authority, no network calls.
 
-4. **Identity is self-contained.** An OVID carries everything needed for verification. No database lookups, no central authority, no network calls.
-
-5. **The chain is the proof.** Each OVID embeds its full parent chain. Any verifier can walk the chain back to the root (primary agent) and confirm every signature.
+4. **The chain is the proof.** Each OVID embeds its full parent chain. Any verifier can walk the chain back to the root (primary agent) and confirm every signature.
 
 ---
 
@@ -82,11 +81,6 @@ OVIDs are JWTs (RFC 7519) signed with EdDSA (Ed25519). This means every OVID is 
 
   "ovid_version": 1,
   "role": "code-reviewer",
-  "scope": {
-    "tools": { "allow": ["read_file", "mcp_call"], "deny": ["exec", "write"] },
-    "shell": { "deny": ["rm", "curl"] },
-    "paths": { "allow": ["/Users/*/projects/repo-a/**"] }
-  },
   "parent_chain": ["sarah", "clawdrey"],
   "parent_ovid": "clawdrey/orchestrator-2b1c",
   "agent_pub": "MCowBQYDK2VwAyEA..."
@@ -103,34 +97,9 @@ Standard JWT claims:
 OVID-specific claims:
 - `ovid_version` — format version (1)
 - `role` — agent role label
-- `scope` — authorized tools, shell commands, API domains, filesystem paths
 - `parent_chain` — full delegation chain back to the human
 - `parent_ovid` — parent's OVID `jti` (absent for primary agent)
 - `agent_pub` — this agent's Ed25519 public key (for issuing derived OVIDs)
-
-### Scope Structure
-
-```typescript
-interface OvidScope {
-  tools?: {
-    allow?: string[];      // tool names or patterns (e.g., "read_file", "github/*")
-    deny?: string[];       // explicit denials (deny wins over allow)
-  };
-  shell?: {
-    allow?: string[];      // binary names (e.g., "git", "npm")
-    deny?: string[];       // e.g., "rm", "curl"
-  };
-  api?: {
-    allow?: string[];      // domain names (e.g., "api.github.com")
-    deny?: string[];       // e.g., "*.social-media.com"
-  };
-  paths?: {
-    allow?: string[];      // filesystem paths (e.g., "/Users/*/projects/repo-a/**")
-    deny?: string[];       // e.g., "~/.ssh/**", "~/.openclaw/credentials/**"
-  };
-  custom?: Record<string, string[]>;  // extensible for future scope types
-}
-```
 
 ### Why JWTs with Ed25519?
 
@@ -154,37 +123,35 @@ interface OvidScope {
 
 Roles are freeform strings. The OVID library does not define or enforce a role taxonomy — each deployment defines roles that make sense for its domain. An agent helping a software engineer will have different roles than one helping an accountant or an architect.
 
-The `role` claim is for **human readability and audit trails**. Authorization comes from the `scope`, not the role name. Cedar policies can reference either or both.
+The `role` claim is for **identity and audit trails** — it says what kind of agent this is. Authorization decisions (which tools this role can use, which files it can access) are made by the policy layer (Cedar, OpenClaw tool policy, or your own code), not by OVID itself.
 
 ### Example: Software Engineering Agent
 
-| Role | Typical scope |
-|------|--------------|
-| `architect` | read files, search web, no code execution |
-| `coder` | read/write files, git, run tests, no deployment |
-| `code-reviewer` | read-only, file issues, no modifications |
-| `security-reviewer` | read-only, static analysis tools |
-| `browser-worker` | browser on specified domains, no exec |
+| Role | Description |
+|------|------------|
+| `architect` | designs systems, reviews structure |
+| `coder` | writes and tests code |
+| `code-reviewer` | reviews code, files issues |
+| `security-reviewer` | audits code for vulnerabilities |
+| `browser-worker` | interacts with web UIs |
 
 ### Example: Accounting Agent
 
-| Role | Typical scope |
-|------|--------------|
-| `auditor` | read financial docs, query databases, no writes |
-| `bookkeeper` | read/write ledger entries, no bank API access |
-| `tax-preparer` | read all, write tax forms, submit to IRS API |
-| `reconciler` | read bank feeds + ledger, flag discrepancies |
+| Role | Description |
+|------|------------|
+| `auditor` | reviews financial documents |
+| `bookkeeper` | manages ledger entries |
+| `tax-preparer` | prepares and files tax forms |
+| `reconciler` | reconciles bank feeds with ledger |
 
 ### Example: Creative Agent
 
-| Role | Typical scope |
-|------|--------------|
-| `researcher` | web search, read reference docs |
-| `drafter` | write files, no publish |
-| `editor` | read/write drafts, no publish |
-| `publisher` | read drafts, publish to CMS, post to social |
-
-**Scope templates** are an optional convenience. The library ships a few common templates (e.g., `readOnly`, `noExec`, `webOnly`) that you can use as starting points, but you're never required to use them.
+| Role | Description |
+|------|------------|
+| `researcher` | gathers reference material |
+| `drafter` | writes initial drafts |
+| `editor` | revises and polishes drafts |
+| `publisher` | publishes finished work |
 
 ---
 
@@ -198,15 +165,11 @@ import { createOvid, generateKeypair } from '@clawdreyhepburn/ovid';
 // Primary agent creates its keypair once (persisted)
 const parentKeys = generateKeypair();
 
-// Spawn a sub-agent with a scoped identity
+// Spawn a sub-agent with a verifiable identity
 const reviewerOvid = createOvid({
   issuerKeys: parentKeys,
   issuerOvid: parentOvid,        // optional: absent for primary agent
   role: 'code-reviewer',
-  scope: {
-    tools: { allow: ['read_file', 'mcp_call'], deny: ['exec', 'write'] },
-    paths: { allow: ['/Users/*/projects/repo-a/**'] },
-  },
   ttlSeconds: 1800,              // 30 minutes
 });
 
@@ -227,7 +190,6 @@ const result = verifyOvid(reviewerOvid.jwt, {
 if (result.valid) {
   console.log(result.principal);   // "clawdrey/reviewer-7f3a"
   console.log(result.role);        // "code-reviewer"
-  console.log(result.scope);       // { tools: { allow: [...], deny: [...] } }
   console.log(result.chain);       // ["sarah", "clawdrey"]
   console.log(result.expiresIn);   // seconds until expiry
 }
@@ -235,26 +197,13 @@ if (result.valid) {
 // Any standard JWT library can also decode it:
 // jose.jwtVerify(reviewerOvid.jwt, parentPublicKey, { algorithms: ['EdDSA'] })
 ```
-```
 
 Verification checks:
 1. Signature is valid (Ed25519 verify against issuer's public key)
 2. Parent chain signatures are valid (walk the chain)
 3. Root of chain is in `trustedRoots`
 4. Not expired
-5. Scope is a subset of parent's scope (attenuation)
-
-### Scope Attenuation
-
-When a sub-agent issues a derived OVID, the library enforces that the child's scope is a subset of the parent's:
-
-```
-Parent scope: { tools: { allow: ["read_file", "write", "exec"] } }
-Child scope:  { tools: { allow: ["read_file"] } }           ✅ Valid (subset)
-Child scope:  { tools: { allow: ["read_file", "browser"] } } ❌ Rejected (browser not in parent)
-```
-
-This is enforced at issuance time, not just verification. You can't create an invalid OVID.
+5. Lifetime does not exceed parent's lifetime
 
 ---
 
@@ -278,22 +227,25 @@ For cases where immediate revocation is needed:
 
 ### Standalone (no Carapace)
 
-OVID works as a pure identity library. Your code issues, verifies, and makes decisions:
+OVID works as a pure identity library. Your code issues and verifies identities, then makes its own authorization decisions:
 
 ```typescript
 const ovid = verifyOvid(subagentOvid, { trustedRoots });
 if (!ovid.valid) throw new Error('Untrusted sub-agent');
-if (!ovid.scope.tools.allow.includes(requestedTool)) {
-  throw new Error(`Tool ${requestedTool} not in scope for role ${ovid.role}`);
+
+// OVID tells you WHO this agent is.
+// YOUR code (or Cedar) decides what it's allowed to do.
+if (ovid.role !== 'code-reviewer') {
+  throw new Error(`Role ${ovid.role} not authorized for this operation`);
 }
 ```
 
 ### With Carapace (Cedar integration)
 
-When used with Carapace, OVIDs map to Cedar principals:
+When used with Carapace, OVID identity claims flow into the Cedar evaluation context. OVID provides the **principal identity**; Cedar policies make the **authorization decision**:
 
 ```cedar
-// The OVID becomes the principal
+// Cedar uses OVID identity to authorize actions
 permit(
   principal is Agent,
   action == Action::"execute",
@@ -304,7 +256,7 @@ permit(
   principal.parentChain.contains("clawdrey")
 };
 
-// Deny escalation attempts
+// Cedar controls tool access — not OVID
 forbid(
   principal is Agent,
   action == Action::"execute",
@@ -314,25 +266,25 @@ forbid(
 };
 ```
 
-The `ovid-cedar` adapter maps OVID fields to Cedar entity attributes:
+The `ovid-cedar` adapter maps OVID identity fields to Cedar entity attributes:
 
 | OVID field | Cedar attribute | Type |
 |-----------|----------------|------|
 | `id` | `principal` | `Agent::"<id>"` |
 | `role` | `principal.role` | String |
 | `parentChain` | `principal.parentChain` | Set<String> |
-| `scope.tools.allow` | `principal.allowedTools` | Set<String> |
-| `scope.tools.deny` | `principal.deniedTools` | Set<String> |
 | `issuer` | `principal.issuer` | String |
 | `expiresAt` | `principal.expiresAt` | Long |
+
+Authorization attributes (allowed tools, permitted paths, API access) are defined in Cedar policies and entities — not in the OVID itself.
 
 ### With OpenClaw
 
 OVID hooks into OpenClaw's sub-agent lifecycle:
 
 1. **At spawn time:** Before `sessions_spawn` executes, generate an OVID for the sub-agent based on the requested role
-2. **In the sub-agent's context:** The OVID is injected as session metadata, available to any policy enforcement layer
-3. **At tool execution time:** If Carapace is present, the OVID principal is used for Cedar evaluation. If not, the OVID scope can drive OpenClaw's native `tools.allow`/`tools.deny`
+2. **In the sub-agent's context:** The OVID is injected as session metadata, providing verifiable identity to any policy enforcement layer
+3. **At tool execution time:** Carapace evaluates Cedar policies using the OVID principal's identity claims (role, chain, issuer) to decide whether the action is permitted
 4. **At completion:** The OVID expires naturally or is revoked when the sub-agent session ends
 
 ---
@@ -341,8 +293,8 @@ OVID hooks into OpenClaw's sub-agent lifecycle:
 
 - **Not a replacement for SPIFFE.** SPIFFE is an infrastructure-grade workload identity system. OVID is a lightweight agent credential for multi-agent orchestration. Different problem, different scale.
 - **Not a VC (Verifiable Credential).** OVIDs are not W3C VCs. They don't use JSON-LD, DID methods, or VC data model. They're standard JWTs with custom claims, purpose-built for agent-to-agent trust within a single deployment.
-- **Not authentication.** OVID is about authorization and provenance. It assumes the transport layer handles authentication (OpenClaw sessions, TLS, etc.).
-- **Not access control.** OVID provides identity and scope claims. Access control decisions are made by Cedar, OpenClaw's native tool policy, or your own code.
+- **Not authentication.** OVID is about identity and provenance. It assumes the transport layer handles authentication (OpenClaw sessions, TLS, etc.).
+- **Not authorization.** OVID provides identity claims — who this agent is, what role it plays, who vouches for it. Authorization decisions (what tools it can use, what files it can access) belong to Cedar, OpenClaw's native tool policy, or your own code. Identity is not authorization.
 
 ---
 
@@ -352,7 +304,7 @@ OVID hooks into OpenClaw's sub-agent lifecycle:
 
 2. **Key rotation:** Primary agent keys should be rotated periodically. Old keys go into a `previousKeys` set for verifying OVIDs issued before rotation. Rotation frequency depends on deployment — monthly is reasonable.
 
-3. **Scope completeness:** The scope system is only as good as its coverage. If a sub-agent can bypass scope via a tool that OVID doesn't gate (e.g., a built-in tool with no policy hook), the scope is advisory, not enforceable. Carapace integration closes this gap.
+3. **Identity is not authorization.** OVID tells you who an agent is; it does not tell you what that agent is allowed to do. A verified OVID with role "code-reviewer" is not itself a grant of any permissions — the policy layer must map that identity to concrete access decisions. Deploying OVID without a policy layer (Cedar, OpenClaw tool policy, or equivalent) means identity is informational only.
 
 4. **Time-based attacks:** OVIDs rely on system clock for expiry. In a single-machine deployment (typical for OpenClaw), clock skew isn't a concern. For distributed deployments, use conservative TTLs.
 
