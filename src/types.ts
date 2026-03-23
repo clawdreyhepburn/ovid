@@ -25,11 +25,13 @@ export interface CreateOvidOptions {
   maxChainDepth?: number;
   kid?: string;
   issuer?: string;
+  auditLogger?: import('./audit.js').AuditLogger;
 }
 
 export interface VerifyOvidOptions {
   trustedRoots: CryptoKey[];
   maxChainDepth?: number;
+  auditLogger?: import('./audit.js').AuditLogger;
 }
 
 export interface OvidResult {

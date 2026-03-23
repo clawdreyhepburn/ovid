@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>OVID Agent Governance Flow</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0a0a0a; color: #c4a87c; font-family: 'Georgia', serif; }
+  h1 { text-align: center; padding: 24px; font-size: 28px; letter-spacing: 2px; }
+  #chart { width: 100%; height: 600px; }
+  .node rect { cursor: pointer; }
+  .node text { fill: #c4a87c; font-size: 11px; }
+  .link { fill: none; stroke-opacity: 0.4; }
+  .link:hover { stroke-opacity: 0.7; }
+  .tooltip { position: absolute; background: #1a1a1a; border: 1px solid #c4a87c; color: #c4a87c; padding: 8px 12px; border-radius: 4px; font-size: 13px; pointer-events: none; display: none; }
+  textarea { width: 90%; margin: 20px auto; display: block; height: 150px; background: #111; color: #81d8d0; border: 1px solid #333; padding: 10px; font-family: monospace; font-size: 12px; }
+  button { display: block; margin: 10px auto 30px; padding: 8px 24px; background: #c4a87c; color: #0a0a0a; border: none; cursor: pointer; font-weight: bold; border-radius: 4px; }
+  button:hover { background: #81d8d0; }
+  .subtitle { text-align: center; color: #666; font-size: 14px; margin-bottom: 10px; }
+</style>
+</head>
+<body>
+<h1>OVID Agent Governance Flow</h1>
+<p class="subtitle">Visualizing agent delegation chains and authorization decisions</p>
+<div id="chart"></div>
+<div class="tooltip" id="tooltip"></div>
+<textarea id="logInput" placeholder="Paste your own JSONL audit log here to regenerate the diagram..."></textarea>
+<button onclick="regenerate()">Regenerate Diagram</button>
+
+<script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+<script src="https://cdn.jsdelivr.net/npm/d3-sankey@0.12"></script>
+<script>
+// Sample JSONL data (realistic 80+ entries)
+const SAMPLE_LOG = `
+{"ts":"2026-03-23T10:00:00.000Z","event":"issuance","jti":"clawdrey","iss":"root","sub":"clawdrey","role":"orchestrator","parent_chain":[],"exp":1742900000}
+{"ts":"2026-03-23T10:00:01.000Z","event":"issuance","jti":"clawdrey/code-reviewer-a1b2","iss":"clawdrey","sub":"clawdrey/code-reviewer-a1b2","role":"code-reviewer","parent_chain":["clawdrey"],"exp":1742899000}
+{"ts":"2026-03-23T10:00:02.000Z","event":"issuance","jti":"clawdrey/browser-worker-c3d4","iss":"clawdrey","sub":"clawdrey/browser-worker-c3d4","role":"browser-worker","parent_chain":["clawdrey"],"exp":1742899000}
+{"ts":"2026-03-23T10:00:03.000Z","event":"issuance","jti":"clawdrey/file-manager-e5f6","iss":"clawdrey","sub":"clawdrey/file-manager-e5f6","role":"file-manager","parent_chain":["clawdrey"],"exp":1742899000}
+{"ts":"2026-03-23T10:00:04.000Z","event":"issuance","jti":"clawdrey/email-handler-g7h8","iss":"clawdrey","sub":"clawdrey/email-handler-g7h8","role":"email-handler","parent_chain":["clawdrey"],"exp":1742899000}
+{"ts":"2026-03-23T10:00:05.000Z","event":"issuance","jti":"clawdrey/deploy-agent-i9j0","iss":"clawdrey","sub":"clawdrey/deploy-agent-i9j0","role":"deploy-agent","parent_chain":["clawdrey"],"exp":1742899000}
+{"ts":"2026-03-23T10:00:06.000Z","event":"issuance","jti":"clawdrey/code-reviewer-a1b2/reader-k1l2","iss":"clawdrey/code-reviewer-a1b2","sub":"clawdrey/code-reviewer-a1b2/reader-k1l2","role":"reader","parent_chain":["clawdrey","clawdrey/code-reviewer-a1b2"],"exp":1742898000}
+{"ts":"2026-03-23T10:00:07.000Z","event":"issuance","jti":"clawdrey/code-reviewer-a1b2/linter-m3n4","iss":"clawdrey/code-reviewer-a1b2","sub":"clawdrey/code-reviewer-a1b2/linter-m3n4","role":"linter","parent_chain":["clawdrey","clawdrey/code-reviewer-a1b2"],"exp":1742898000}
+{"ts":"2026-03-23T10:00:08.000Z","event":"issuance","jti":"clawdrey/browser-worker-c3d4/scraper-o5p6","iss":"clawdrey/browser-worker-c3d4","sub":"clawdrey/browser-worker-c3d4/scraper-o5p6","role":"scraper","parent_chain":["clawdrey","clawdrey/browser-worker-c3d4"],"exp":1742898000}
+{"ts":"2026-03-23T10:01:00.000Z","event":"decision","agentJti":"clawdrey","action":"use_tool","resource":"browser","decision":"allow-proven","policies":["root-full-access"]}
+{"ts":"2026-03-23T10:01:01.000Z","event":"decision","agentJti":"clawdrey","action":"exec_command","resource":"shell","decision":"allow-proven","policies":["root-full-access"]}
+{"ts":"2026-03-23T10:01:02.000Z","event":"decision","agentJti":"clawdrey","action":"read_file","resource":"/src/main.ts","decision":"allow-proven","policies":["root-full-access"]}
+{"ts":"2026-03-23T10:01:03.000Z","event":"decision","agentJti":"clawdrey","action":"use_tool","resource":"git","decision":"allow-proven","policies":["root-full-access"]}
+{"ts":"2026-03-23T10:01:04.000Z","event":"decision","agentJti":"clawdrey","action":"send_message","resource":"imessage","decision":"allow-proven","policies":["root-full-access"]}
+{"ts":"2026-03-23T10:02:00.000Z","event":"decision","agentJti":"clawdrey/code-reviewer-a1b2","action":"read_file","resource":"/src/index.ts","decision":"allow-proven","policies":["code-review-read"]}
+{"ts":"2026-03-23T10:02:01.000Z","event":"decision","agentJti":"clawdrey/code-reviewer-a1b2","action":"read_file","resource":"/src/types.ts","decision":"allow-proven","policies":["code-review-read"]}
+{"ts":"2026-03-23T10:02:02.000Z","event":"decision","agentJti":"clawdrey/code-reviewer-a1b2","action":"read_file","resource":"/test/main.test.ts","decision":"allow-proven","policies":["code-review-read"]}
+{"ts":"2026-03-23T10:02:03.000Z","event":"decision","agentJti":"clawdrey/code-reviewer-a1b2","action":"exec_command","resource":"npm test","decision":"allow-proven","policies":["code-review-exec"]}
+{"ts":"2026-03-23T10:02:04.000Z","event":"decision","agentJti":"clawdrey/code-reviewer-a1b2","action":"write_file","resource":"/src/index.ts","decision":"deny","policies":["code-review-no-write"]}
+{"ts":"2026-03-23T10:02:05.000Z","event":"decision","agentJti":"clawdrey/code-reviewer-a1b2","action":"exec_command","resource":"rm -rf /","decision":"deny","policies":["dangerous-command-block"]}
+{"ts":"2026-03-23T10:02:06.000Z","event":"decision","agentJti":"clawdrey/code-reviewer-a1b2","action":"use_tool","resource":"browser","decision":"deny","policies":["code-review-no-browser"]}
+{"ts":"2026-03-23T10:02:07.000Z","event":"decision","agentJti":"clawdrey/code-reviewer-a1b2","action":"read_file","resource":"/package.json","decision":"allow-proven","policies":["code-review-read"]}
+{"ts":"2026-03-23T10:03:00.000Z","event":"decision","agentJti":"clawdrey/browser-worker-c3d4","action":"use_tool","resource":"browser","decision":"allow-proven","policies":["browser-access"]}
+{"ts":"2026-03-23T10:03:01.000Z","event":"decision","agentJti":"clawdrey/browser-worker-c3d4","action":"use_tool","resource":"browser","decision":"allow-proven","policies":["browser-access"]}
+{"ts":"2026-03-23T10:03:02.000Z","event":"decision","agentJti":"clawdrey/browser-worker-c3d4","action":"read_file","resource":"/config.json","decision":"allow-unproven","policies":[]}
+{"ts":"2026-03-23T10:03:03.000Z","event":"decision","agentJti":"clawdrey/browser-worker-c3d4","action":"exec_command","resource":"curl","decision":"deny","policies":["no-exec-for-browser"]}
+{"ts":"2026-03-23T10:03:04.000Z","event":"decision","agentJti":"clawdrey/browser-worker-c3d4","action":"send_message","resource":"discord","decision":"deny","policies":["no-messaging"]}
+{"ts":"2026-03-23T10:03:05.000Z","event":"decision","agentJti":"clawdrey/browser-worker-c3d4","action":"use_tool","resource":"browser","decision":"allow-proven","policies":["browser-access"]}
+{"ts":"2026-03-23T10:04:00.000Z","event":"decision","agentJti":"clawdrey/file-manager-e5f6","action":"read_file","resource":"/data/input.csv","decision":"allow-proven","policies":["file-read"]}
+{"ts":"2026-03-23T10:04:01.000Z","event":"decision","agentJti":"clawdrey/file-manager-e5f6","action":"write_file","resource":"/data/output.csv","decision":"allow-proven","policies":["file-write"]}
+{"ts":"2026-03-23T10:04:02.000Z","event":"decision","agentJti":"clawdrey/file-manager-e5f6","action":"read_file","resource":"/etc/passwd","decision":"deny","policies":["sensitive-path-block"]}
+{"ts":"2026-03-23T10:04:03.000Z","event":"decision","agentJti":"clawdrey/file-manager-e5f6","action":"write_file","resource":"/data/report.md","decision":"allow-proven","policies":["file-write"]}
+{"ts":"2026-03-23T10:04:04.000Z","event":"decision","agentJti":"clawdrey/file-manager-e5f6","action":"exec_command","resource":"ls","decision":"allow-unproven","policies":[]}
+{"ts":"2026-03-23T10:04:05.000Z","event":"decision","agentJti":"clawdrey/file-manager-e5f6","action":"read_file","resource":"/data/config.yaml","decision":"allow-proven","policies":["file-read"]}
+{"ts":"2026-03-23T10:05:00.000Z","event":"decision","agentJti":"clawdrey/email-handler-g7h8","action":"send_message","resource":"email:sarah@example.com","decision":"allow-proven","policies":["email-send"]}
+{"ts":"2026-03-23T10:05:01.000Z","event":"decision","agentJti":"clawdrey/email-handler-g7h8","action":"read_file","resource":"/templates/welcome.html","decision":"allow-proven","policies":["email-templates"]}
+{"ts":"2026-03-23T10:05:02.000Z","event":"decision","agentJti":"clawdrey/email-handler-g7h8","action":"send_message","resource":"email:unknown@evil.com","decision":"deny","policies":["email-allowlist"]}
+{"ts":"2026-03-23T10:05:03.000Z","event":"decision","agentJti":"clawdrey/email-handler-g7h8","action":"exec_command","resource":"curl","decision":"deny","policies":["no-exec-for-email"]}
+{"ts":"2026-03-23T10:05:04.000Z","event":"decision","agentJti":"clawdrey/email-handler-g7h8","action":"send_message","resource":"email:adam@example.com","decision":"allow-proven","policies":["email-send"]}
+{"ts":"2026-03-23T10:05:05.000Z","event":"decision","agentJti":"clawdrey/email-handler-g7h8","action":"use_tool","resource":"browser","decision":"deny","policies":["no-browser-for-email"]}
+{"ts":"2026-03-23T10:06:00.000Z","event":"decision","agentJti":"clawdrey/deploy-agent-i9j0","action":"exec_command","resource":"npm run build","decision":"allow-proven","policies":["deploy-exec"]}
+{"ts":"2026-03-23T10:06:01.000Z","event":"decision","agentJti":"clawdrey/deploy-agent-i9j0","action":"exec_command","resource":"npm test","decision":"allow-proven","policies":["deploy-exec"]}
+{"ts":"2026-03-23T10:06:02.000Z","event":"decision","agentJti":"clawdrey/deploy-agent-i9j0","action":"exec_command","resource":"git push","decision":"allow-unproven","policies":[]}
+{"ts":"2026-03-23T10:06:03.000Z","event":"decision","agentJti":"clawdrey/deploy-agent-i9j0","action":"exec_command","resource":"ssh deploy@prod","decision":"deny","policies":["no-prod-access"]}
+{"ts":"2026-03-23T10:06:04.000Z","event":"decision","agentJti":"clawdrey/deploy-agent-i9j0","action":"read_file","resource":"/deploy.yaml","decision":"allow-proven","policies":["deploy-read"]}
+{"ts":"2026-03-23T10:06:05.000Z","event":"decision","agentJti":"clawdrey/deploy-agent-i9j0","action":"exec_command","resource":"docker build","decision":"allow-proven","policies":["deploy-exec"]}
+{"ts":"2026-03-23T10:07:00.000Z","event":"decision","agentJti":"clawdrey/code-reviewer-a1b2/reader-k1l2","action":"read_file","resource":"/src/main.ts","decision":"allow-proven","policies":["reader-read"]}
+{"ts":"2026-03-23T10:07:01.000Z","event":"decision","agentJti":"clawdrey/code-reviewer-a1b2/reader-k1l2","action":"read_file","resource":"/src/utils.ts","decision":"allow-proven","policies":["reader-read"]}
+{"ts":"2026-03-23T10:07:02.000Z","event":"decision","agentJti":"clawdrey/code-reviewer-a1b2/reader-k1l2","action":"write_file","resource":"/src/main.ts","decision":"deny","policies":["reader-no-write"]}
+{"ts":"2026-03-23T10:07:03.000Z","event":"decision","agentJti":"clawdrey/code-reviewer-a1b2/reader-k1l2","action":"read_file","resource":"/README.md","decision":"allow-proven","policies":["reader-read"]}
+{"ts":"2026-03-23T10:07:04.000Z","event":"decision","agentJti":"clawdrey/code-reviewer-a1b2/reader-k1l2","action":"exec_command","resource":"wc -l","decision":"allow-unproven","policies":[]}
+{"ts":"2026-03-23T10:08:00.000Z","event":"decision","agentJti":"clawdrey/code-reviewer-a1b2/linter-m3n4","action":"exec_command","resource":"eslint","decision":"allow-proven","policies":["linter-exec"]}
+{"ts":"2026-03-23T10:08:01.000Z","event":"decision","agentJti":"clawdrey/code-reviewer-a1b2/linter-m3n4","action":"exec_command","resource":"tsc --noEmit","decision":"allow-proven","policies":["linter-exec"]}
+{"ts":"2026-03-23T10:08:02.000Z","event":"decision","agentJti":"clawdrey/code-reviewer-a1b2/linter-m3n4","action":"read_file","resource":"/.eslintrc.json","decision":"allow-proven","policies":["linter-read"]}
+{"ts":"2026-03-23T10:08:03.000Z","event":"decision","agentJti":"clawdrey/code-reviewer-a1b2/linter-m3n4","action":"write_file","resource":"/src/main.ts","decision":"deny","policies":["linter-no-write"]}
+{"ts":"2026-03-23T10:08:04.000Z","event":"decision","agentJti":"clawdrey/code-reviewer-a1b2/linter-m3n4","action":"exec_command","resource":"prettier --check","decision":"allow-proven","policies":["linter-exec"]}
+{"ts":"2026-03-23T10:09:00.000Z","event":"decision","agentJti":"clawdrey/browser-worker-c3d4/scraper-o5p6","action":"use_tool","resource":"browser","decision":"allow-proven","policies":["scraper-browser"]}
+{"ts":"2026-03-23T10:09:01.000Z","event":"decision","agentJti":"clawdrey/browser-worker-c3d4/scraper-o5p6","action":"use_tool","resource":"browser","decision":"allow-proven","policies":["scraper-browser"]}
+{"ts":"2026-03-23T10:09:02.000Z","event":"decision","agentJti":"clawdrey/browser-worker-c3d4/scraper-o5p6","action":"write_file","resource":"/tmp/scraped.json","decision":"allow-unproven","policies":[]}
+{"ts":"2026-03-23T10:09:03.000Z","event":"decision","agentJti":"clawdrey/browser-worker-c3d4/scraper-o5p6","action":"exec_command","resource":"curl","decision":"deny","policies":["no-exec-for-scraper"]}
+{"ts":"2026-03-23T10:09:04.000Z","event":"decision","agentJti":"clawdrey/browser-worker-c3d4/scraper-o5p6","action":"use_tool","resource":"browser","decision":"allow-proven","policies":["scraper-browser"]}
+{"ts":"2026-03-23T10:09:05.000Z","event":"decision","agentJti":"clawdrey/browser-worker-c3d4/scraper-o5p6","action":"read_file","resource":"/selectors.json","decision":"allow-proven","policies":["scraper-read"]}
+{"ts":"2026-03-23T10:10:00.000Z","event":"decision","agentJti":"clawdrey","action":"exec_command","resource":"npm publish","decision":"allow-proven","policies":["root-full-access"]}
+{"ts":"2026-03-23T10:10:01.000Z","event":"decision","agentJti":"clawdrey","action":"send_message","resource":"twitter","decision":"allow-unproven","policies":[]}
+{"ts":"2026-03-23T10:10:02.000Z","event":"decision","agentJti":"clawdrey","action":"use_tool","resource":"calendar","decision":"allow-proven","policies":["root-full-access"]}
+{"ts":"2026-03-23T10:10:03.000Z","event":"decision","agentJti":"clawdrey/file-manager-e5f6","action":"write_file","resource":"/.env","decision":"deny","policies":["sensitive-path-block"]}
+{"ts":"2026-03-23T10:10:04.000Z","event":"decision","agentJti":"clawdrey/email-handler-g7h8","action":"read_file","resource":"/templates/footer.html","decision":"allow-proven","policies":["email-templates"]}
+{"ts":"2026-03-23T10:10:05.000Z","event":"decision","agentJti":"clawdrey/deploy-agent-i9j0","action":"exec_command","resource":"npm run lint","decision":"allow-proven","policies":["deploy-exec"]}
+`.trim();
+
+const colorMap = {
+  'allow-proven': '#81d8d0',
+  'allow-unproven': '#c4a87c',
+  'deny': '#e06060'
+};
+
+function linkColor(d) {
+  const name = d.target.name || '';
+  return colorMap[name] || '#555';
+}
+
+function parseLog(text) {
+  const lines = text.trim().split('\n').filter(l => l.length > 0);
+  const entries = lines.map(l => JSON.parse(l));
+  const agents = new Map();
+  const decisionCounts = new Map();
+  const actionCounts = new Map();
+
+  for (const e of entries) {
+    if (e.event === 'issuance' && e.sub && e.iss && e.role) {
+      const depth = (e.parent_chain || []).length;
+      agents.set(e.sub, { iss: e.iss, role: e.role, depth });
+    }
+    if (e.event === 'decision' && e.agentJti && e.decision) {
+      if (!decisionCounts.has(e.agentJti)) decisionCounts.set(e.agentJti, new Map());
+      const m = decisionCounts.get(e.agentJti);
+      m.set(e.decision, (m.get(e.decision) || 0) + 1);
+      if (e.action) {
+        if (!actionCounts.has(e.agentJti)) actionCounts.set(e.agentJti, new Map());
+        const a = actionCounts.get(e.agentJti);
+        a.set(e.action, (a.get(e.action) || 0) + 1);
+      }
+    }
+  }
+
+  const nodeNames = [];
+  const nodeIndex = name => {
+    let i = nodeNames.indexOf(name);
+    if (i === -1) { i = nodeNames.length; nodeNames.push(name); }
+    return i;
+  };
+  const links = [];
+
+  for (const [id, info] of agents) {
+    const total = [...(decisionCounts.get(id)?.values() || [])].reduce((a, b) => a + b, 0) || 1;
+    links.push({ source: nodeIndex(info.iss), target: nodeIndex(id), value: total });
+  }
+  for (const [id, decs] of decisionCounts) {
+    for (const [dec, cnt] of decs) {
+      links.push({ source: nodeIndex(id), target: nodeIndex(dec), value: cnt });
+    }
+  }
+  for (const [id, acts] of actionCounts) {
+    for (const [act, cnt] of acts) {
+      links.push({ source: nodeIndex(id), target: nodeIndex('action:' + act), value: cnt });
+    }
+  }
+
+  return { nodes: nodeNames.map((n, i) => ({ name: n, index: i })), links };
+}
+
+function renderSankey(nodes, links) {
+  const container = document.getElementById('chart');
+  container.innerHTML = '';
+  const width = container.clientWidth || 1200;
+  const height = 600;
+  const svg = d3.select('#chart').append('svg').attr('width', width).attr('height', height);
+  const sankey = d3.sankey().nodeWidth(20).nodePadding(10).extent([[40, 40], [width - 40, height - 40]]);
+
+  const graph = sankey({
+    nodes: nodes.map(d => ({ ...d })),
+    links: links.map(d => ({ ...d }))
+  });
+
+  const tooltip = document.getElementById('tooltip');
+
+  svg.append('g').selectAll('.link')
+    .data(graph.links).enter().append('path')
+    .attr('class', 'link')
+    .attr('d', d3.sankeyLinkHorizontal())
+    .attr('stroke', linkColor)
+    .attr('stroke-width', d => Math.max(1, d.width))
+    .on('mouseover', (ev, d) => {
+      tooltip.style.display = 'block';
+      tooltip.innerHTML = d.source.name + ' → ' + d.target.name + ': <b>' + d.value + '</b>';
+    })
+    .on('mousemove', ev => {
+      tooltip.style.left = (ev.pageX + 12) + 'px';
+      tooltip.style.top = (ev.pageY - 20) + 'px';
+    })
+    .on('mouseout', () => { tooltip.style.display = 'none'; });
+
+  const node = svg.append('g').selectAll('.node')
+    .data(graph.nodes).enter().append('g').attr('class', 'node');
+
+  node.append('rect')
+    .attr('x', d => d.x0).attr('y', d => d.y0)
+    .attr('height', d => Math.max(1, d.y1 - d.y0))
+    .attr('width', sankey.nodeWidth())
+    .attr('fill', d => colorMap[d.name] || (d.name.startsWith('action:') ? '#666' : '#c4a87c'))
+    .attr('stroke', '#0a0a0a')
+    .on('click', (ev, d) => {
+      // Filter: highlight only links connected to this node
+      svg.selectAll('.link')
+        .attr('stroke-opacity', l => (l.source === d || l.target === d) ? 0.7 : 0.05);
+    });
+
+  // Double-click to reset
+  svg.on('dblclick', () => {
+    svg.selectAll('.link').attr('stroke-opacity', 0.4);
+  });
+
+  node.append('text')
+    .attr('x', d => d.x0 < width / 2 ? d.x1 + 6 : d.x0 - 6)
+    .attr('y', d => (d.y0 + d.y1) / 2)
+    .attr('dy', '0.35em')
+    .attr('text-anchor', d => d.x0 < width / 2 ? 'start' : 'end')
+    .text(d => d.name.replace('action:', '⚡'));
+}
+
+// Initial render with sample data
+const { nodes, links } = parseLog(SAMPLE_LOG);
+renderSankey(nodes, links);
+
+function regenerate() {
+  const text = document.getElementById('logInput').value;
+  if (!text.trim()) return;
+  try {
+    const { nodes, links } = parseLog(text);
+    renderSankey(nodes, links);
+  } catch (e) {
+    alert('Parse error: ' + e.message);
+  }
+}
+</script>
+</body>
+</html>
