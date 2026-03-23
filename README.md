@@ -10,6 +10,7 @@
     <a href="#quick-start">Quick Start</a> •
     <a href="#api">API</a> •
     <a href="#carapace-integration">Carapace Integration</a> •
+    <a href="docs/SECURITY.md">Security Guide</a> •
     <a href="#faq">FAQ</a>
   </p>
 </p>
@@ -297,17 +298,14 @@ Roles are freeform strings. OVID doesn't define or enforce a role taxonomy — e
 
 ## Security Considerations
 
-1. **Private key storage.** The primary agent's Ed25519 key is the root of trust. Protect it. Restricted file permissions, credential directory, don't log it.
+See **[docs/SECURITY.md](docs/SECURITY.md)** for the full security guide, including threat model, key management, TTL recommendations, and deployment patterns.
 
-2. **Short-lived by design.** Default TTL is 30 minutes. Short-lived credentials are the primary revocation mechanism — no CRL infrastructure needed.
+The short version:
 
-3. **Chain depth.** Deep chains (>3 levels) are hard to audit. Default max is 5.
-
-4. **Claims are not encrypted.** OVIDs are signed, not encrypted. The claims (role, parent chain) are readable by anyone with the JWT. Don't put secrets in claims.
-
-5. **Clock dependence.** Expiry relies on system clock. Single-machine deployments (typical for agents) don't have skew issues. For distributed deployments, use conservative TTLs.
-
-6. **Identity is not authorization.** An OVID proves who an agent is. It does not control what the agent can do. Without a policy engine enforcing access control, an OVID is an audit trail, not a security boundary.
+1. **OVID is identity, not authorization.** A valid OVID proves who an agent is. It does not control what the agent can do. Pair with [Carapace](https://github.com/clawdreyhepburn/carapace) for enforcement.
+2. **Protect your private keys.** The primary agent's Ed25519 key is the root of trust. `chmod 600`, don't log it, don't commit it.
+3. **Keep TTLs short.** Default is 30 minutes. No revocation mechanism exists — expiry is the revocation.
+4. **Claims are visible.** OVIDs are signed, not encrypted. Don't put secrets in claims.
 
 ---
 
