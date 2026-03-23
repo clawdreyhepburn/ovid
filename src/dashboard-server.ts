@@ -99,7 +99,7 @@ export class DashboardServer {
         data = this.db.getRoleBreakdown(from, to);
       } else if (route === 'roles/timeline') {
         data = this.db.getRoleTimeline(from, to);
-      } else if (route.startsWith('roles/') && !route.includes('/')) {
+      } else if (route.startsWith('roles/') && !route.slice(6).includes('/')) {
         const role = decodeURIComponent(route.slice(6));
         data = this.db.getRoleActions(role, from, to);
       } else if (route === 'import' && req.method === 'POST') {
