@@ -1,4 +1,8 @@
-import type { CedarMandate } from './config.js';
+/** Cedar policy set in RAR format (draft-cecchetti-oauth-rar-cedar) */
+export interface CedarMandate {
+  rarFormat: 'cedar'
+  policySet: string
+}
 
 export interface OvidClaims {
   jti: string;
@@ -30,13 +34,11 @@ export interface CreateOvidOptions {
   ttlSeconds?: number;
   kid?: string;
   issuer?: string;
-  auditLogger?: import('./audit.js').AuditLogger;
 }
 
 export interface VerifyOvidOptions {
   trustedRoots: CryptoKey[];
   maxChainDepth?: number;
-  auditLogger?: import('./audit.js').AuditLogger;
 }
 
 export interface OvidResult {

@@ -1,5 +1,4 @@
 import { jwtVerify } from 'jose';
-import { defaultAuditLogger } from './audit.js';
 import type { OvidResult, VerifyOvidOptions, OvidClaims } from './types.js';
 
 export async function verifyOvid(
@@ -32,18 +31,13 @@ export async function verifyOvid(
       return invalid();
     }
 
-    const result: OvidResult = {
+    return {
       valid: true,
       principal: claims.sub,
       mandate: claims.mandate ?? { rarFormat: 'cedar', policySet: '' },
       chain: claims.parent_chain,
       expiresIn,
     };
-
-    const logger = options?.auditLogger ?? defaultAuditLogger;
-    logger.logVerification(claims.jti, result);
-
-    return result;
   } catch {
     return invalid();
   }

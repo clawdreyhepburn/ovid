@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { createOvid, generateKeypair, verifyOvid } from '../src/index.js';
-import type { CedarMandate } from '../src/config.js';
+import type { CedarMandate } from '../src/types.js';
 
 const testMandate: CedarMandate = {
   rarFormat: 'cedar',

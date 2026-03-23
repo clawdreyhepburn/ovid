@@ -1,6 +1,5 @@
 import { SignJWT } from 'jose';
 import { generateKeypair, exportPublicKeyBase64 } from './keys.js';
-import { defaultAuditLogger } from './audit.js';
 import type { CreateOvidOptions, OvidToken, OvidClaims } from './types.js';
 
 const DEFAULT_TTL = 1800;
@@ -73,9 +72,6 @@ export async function createOvid(options: CreateOvidOptions): Promise<OvidToken>
     .setIssuer(claims.iss)
     .setSubject(claims.sub)
     .sign(issuerKeys.privateKey);
-
-  const logger = options.auditLogger ?? defaultAuditLogger;
-  logger.logIssuance(claims);
 
   return { jwt, claims, keys: agentKeys };
 }
