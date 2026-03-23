@@ -30,7 +30,7 @@ Honest guidance on what OVID protects, what it doesn't, and how to avoid the mis
 
 **Chain depth abuse.** Unbounded delegation chains where sub-agents spawn sub-agents spawn sub-agents. OVID enforces a maximum chain depth (default: 5). Deeper than that and `createOvid()` throws.
 
-**Post-incident forensics.** When something goes wrong, the OVID JWT is a self-contained forensic artifact. It tells you who the agent was, who created it, what role it claimed, when it was issued, and the full delegation chain — all cryptographically verifiable after the fact.
+**Post-incident forensics.** When something goes wrong, the OVID JWT is a self-contained forensic artifact. It tells you who the agent was, who created it, what mandate it carries, when it was issued, and the full delegation chain — all cryptographically verifiable after the fact.
 
 ---
 
@@ -38,9 +38,9 @@ Honest guidance on what OVID protects, what it doesn't, and how to avoid the mis
 
 Be honest about these. OVID is an identity layer. It has deliberate boundaries.
 
-**Unauthorized actions.** An OVID proves who an agent is. It does not control what the agent does. A sub-agent with a valid OVID and the role `code-reviewer` can still delete your production database if nothing enforces the "code-reviewer" role at the tool level. You need a policy engine (Cedar/Carapace) for authorization.
+**Unauthorized actions.** An OVID proves who an agent is and carries its mandate. But the mandate must be *evaluated* — OVID itself doesn't enforce it. A sub-agent with a valid OVID can still take unauthorized actions if nothing evaluates the mandate at the tool level. You need [OVID-ME](https://github.com/clawdreyhepburn/ovid-me) for mandate evaluation and [Carapace](https://github.com/clawdreyhepburn/carapace) for deployment-level policy enforcement.
 
-**Compromised parent agents.** If a parent agent is compromised, it can issue valid OVIDs for any role. The OVID is only as trustworthy as the issuer. OVID can't protect against a compromised root of trust — no credential system can.
+**Compromised parent agents.** If a parent agent is compromised, it can issue valid OVIDs with any mandate. The OVID is only as trustworthy as the issuer. OVID can't protect against a compromised root of trust — no credential system can.
 
 **Prompt injection.** A sub-agent that gets prompt-injected through fetched content will still have a valid OVID. The credential is real. The agent's behavior is not. OVID helps with forensics (you know exactly which agent went rogue) but doesn't prevent the injection.
 
@@ -157,7 +157,7 @@ A compromised agent on the same machine could theoretically manipulate the syste
 
 OVIDs are **signed, not encrypted.** The JWT payload is base64url-encoded, which is encoding, not encryption. Anyone with the JWT string can decode the claims and read:
 
-- The agent's role
+- The agent's mandate (Cedar policy set)
 - The agent's ID
 - The full parent chain
 - The issuer
@@ -167,7 +167,7 @@ OVIDs are **signed, not encrypted.** The JWT payload is base64url-encoded, which
 ### What This Means
 
 - **Don't put secrets in claims.** No API keys, no passwords, no PII, no internal hostnames you want to keep private.
-- **Role names are visible.** If your role taxonomy reveals sensitive organizational structure, consider using opaque role identifiers instead of descriptive names.
+- **Mandates are visible.** The Cedar policy set in the mandate reveals what the agent is authorized to do. In sensitive environments, consider using JWE to encrypt the token.
 - **Parent chains reveal topology.** The chain shows who spawned whom. In sensitive environments, this delegation structure might itself be sensitive.
 
 ### If You Need Confidentiality
@@ -183,7 +183,7 @@ Use JWE (JSON Web Encryption) to wrap the OVID in an encrypted envelope. OVID do
 | Agent | Trust Assumption |
 |-------|-----------------|
 | Root agent (primary) | Fully trusted. Holds the root keypair. If compromised, everything is compromised. |
-| Parent agent (any level) | Trusted to issue accurate role claims for its children. If a parent lies about a child's role, the OVID is "valid" but misleading. |
+| Parent agent (any level) | Trusted to issue appropriate mandates for its children. If a parent issues an overly broad mandate, the OVID is "valid" but overprivileged. |
 
 ### Agents OVID Does NOT Trust
 
@@ -200,7 +200,7 @@ Use JWE (JSON Web Encryption) to wrap the OVID in an encrypted envelope. OVID do
 | Sub-agent impersonation | **Prevents.** Signature verification proves identity. | — |
 | Credential forging | **Prevents** (without key theft). Ed25519 signatures are unforgeable without the private key. | Protect private keys. |
 | Key theft | **Does not prevent.** Stolen keys = forged OVIDs. | OS hardening, file permissions, key rotation. |
-| Privilege escalation | **Does not prevent.** OVID has no scope/authorization. | Pair with Carapace/Cedar. |
+| Privilege escalation | **Mitigated at issuance** (mandate must be ⊆ parent's, when OVID-ME subset proof is enabled). | Pair with [OVID-ME](https://github.com/clawdreyhepburn/ovid-me) + [Carapace](https://github.com/clawdreyhepburn/carapace). |
 | Prompt injection | **Does not prevent.** Agent behavior ≠ agent identity. | Content filtering, sandboxing. |
 | Lifetime extension | **Prevents** (at issuance). Child can't outlive parent. | Short TTLs. |
 | Clock manipulation | **Does not prevent.** Relies on system clock. | OS hardening, NTP. |
@@ -209,17 +209,18 @@ Use JWE (JSON Web Encryption) to wrap the OVID in an encrypted envelope. OVID do
 
 ## Recommended Deployment Patterns
 
-### Pattern 1: OVID + Carapace (Recommended)
+### Pattern 1: OVID + OVID-ME + Carapace (Recommended)
 
-The full stack. OVID provides identity, Carapace provides Cedar-based authorization with three-valued decisions.
+The full stack. OVID provides identity, [OVID-ME](https://github.com/clawdreyhepburn/ovid-me) evaluates mandates, [Carapace](https://github.com/clawdreyhepburn/carapace) enforces the deployment ceiling.
 
 ```
 Agent spawns sub-agent
-  → createOvid() with role + TTL
-  → Sub-agent passes X-OVID-Token to Carapace proxy
-  → Carapace extracts claims → Cedar context
-  → Cedar evaluates: role + parentChain + resource attributes
-  → Three-valued decision: DENY / ALLOW (proven) / ALLOW (unproven)
+  → createOvid() with mandate + TTL
+  → OVID-ME verifies mandate ⊆ parent's effective policy (subset proof)
+  → At runtime: sub-agent presents OVID token
+  → OVID-ME evaluates action against mandate → allow/deny
+  → Carapace evaluates action against deployment ceiling → allow/deny
+  → Both must allow
   → Audit log: OVID JWT + decision + timestamp
 ```
 
@@ -227,12 +228,12 @@ Agent spawns sub-agent
 
 ### Pattern 2: OVID Standalone (Audit Trail)
 
-OVID without a policy engine. Every sub-agent has verifiable identity, but nothing enforces authorization. The value is forensics — when something goes wrong, you know exactly who did it.
+OVID without a policy engine. Every sub-agent has verifiable identity with a mandate, but nothing evaluates it at runtime. The value is forensics — when something goes wrong, you know exactly who did it and what they were supposed to be allowed to do.
 
 ```
 Agent spawns sub-agent
-  → createOvid() with role + TTL
-  → Sub-agent carries OVID but nothing checks it at runtime
+  → createOvid() with mandate + TTL
+  → Sub-agent carries OVID but nothing evaluates mandate at runtime
   → If incident occurs: verify OVID, trace chain, identify responsible agent
 ```
 
@@ -240,14 +241,13 @@ Agent spawns sub-agent
 
 ### Pattern 3: OVID + Custom Enforcement
 
-Use OVID's `verifyOvid()` in your own middleware to make authorization decisions. No Carapace required.
+Use OVID's `verifyOvid()` in your own middleware to make authorization decisions. No Carapace or OVID-ME required.
 
 ```typescript
 const result = await verifyOvid(token, trustedKey);
 if (!result.valid) throw new Error('Invalid identity');
-if (result.role !== 'code-reviewer') throw new Error('Wrong role');
 if (result.chain.length > 2) throw new Error('Too deep');
-// Proceed with request
+// Evaluate result.mandate against the requested action using your own logic
 ```
 
 **When to use:** When you have your own authorization logic and just need the identity primitive.

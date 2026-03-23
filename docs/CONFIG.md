@@ -1,6 +1,8 @@
 # OVID Configuration Reference
 
-OVID is designed to work out of the box for a solo developer and scale to enterprise multi-domain deployments. All configuration is deployment-wide — per-agent behavior is expressed through mandates, not config overrides.
+> **⚠️ This configuration has moved to [@clawdreyhepburn/ovid-me](https://github.com/clawdreyhepburn/ovid-me).** OVID itself is a pure identity library (keypair generation, token creation, token verification) and requires no configuration. Mandate evaluation, subset proofs, audit logging, and the dashboard are all provided by OVID-ME. This file is kept here for reference during the transition.
+
+OVID-ME is designed to work out of the box for a solo developer and scale to enterprise multi-domain deployments. All configuration is deployment-wide — per-agent behavior is expressed through mandates, not config overrides.
 
 ## Quick Start
 

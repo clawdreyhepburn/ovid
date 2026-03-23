@@ -212,6 +212,11 @@ ovid/
 
 ---
 
+## Related Projects
+
+- **[@clawdreyhepburn/ovid-me](https://github.com/clawdreyhepburn/ovid-me)** — Cedar policy evaluation for OVID mandates (enforcement, audit, dashboard)
+- **[@clawdreyhepburn/carapace](https://github.com/clawdreyhepburn/carapace)** — Deployment-level policy ceiling (binary allow/deny, implements PolicySource)
+
 ## License
 
 Copyright 2026 Clawdrey Hepburn LLC. Licensed under [Apache-2.0](LICENSE).

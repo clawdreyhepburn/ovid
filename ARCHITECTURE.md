@@ -27,38 +27,16 @@ This is expressed as a Cedar policy set embedded directly in the OVID token, fol
 
 ### Two Enforcement Layers
 
-OVID is designed to work alongside a deployment-level policy engine (such as Carapace), not replace it:
+OVID tokens are designed to work alongside a deployment-level policy engine (such as [Carapace](https://github.com/clawdreyhepburn/carapace)), not replace it. OVID carries the mandate; evaluation and enforcement happen elsewhere:
 
 | Layer | Who writes it | What it does | Scope |
 |-------|--------------|--------------|-------|
-| **Deployment policy** (e.g., Carapace) | Human operator | Defines the ceiling — absolute boundaries no agent can exceed | Deployment-wide |
-| **OVID mandate** | Parent agent | Defines the floor — task-specific constraints for this agent | Per-agent, portable |
+| **Deployment policy** (e.g., [Carapace](https://github.com/clawdreyhepburn/carapace)) | Human operator | Defines the ceiling — absolute boundaries no agent can exceed (binary allow/deny) | Deployment-wide |
+| **OVID mandate** (evaluated by [OVID-ME](https://github.com/clawdreyhepburn/ovid-me)) | Parent agent | Defines the floor — task-specific constraints for this agent | Per-agent, portable |
 
 Both layers evaluate every tool call. Both must allow. A sub-agent is constrained by whichever is more restrictive.
 
-### Issuance-Time Proof
-
-When a parent agent mints an OVID for a sub-agent, OVID verifies that the proposed mandate is a **provable subset** of the parent's effective permissions. This happens once at spawn time:
-
-1. OVID queries the parent's effective policy via a `PolicySource` interface
-2. OVID runs a formal subset proof: is every permission granted by the mandate also granted by the parent's policy?
-3. If provably yes → mint the OVID
-4. If not provable → refuse to mint (configuration error, not a runtime ambiguity)
-
-This eliminates runtime ambiguity. If an OVID was minted, its mandate is guaranteed to be within the parent's bounds.
-
-### PolicySource Interface
-
-OVID doesn't know or care what provides the deployment-level policies. It depends on a single interface:
-
-```typescript
-interface PolicySource {
-  /** Return the effective Cedar policy set for the given principal */
-  getEffectivePolicy(principal: string): Promise<string>
-}
-```
-
-Carapace can implement this. So can a static file, a remote policy server, or anything else that can produce Cedar policy text. OVID is standalone.
+**OVID itself does not evaluate mandates.** It creates and verifies identity tokens that carry mandates. For mandate evaluation, subset proofs, and audit logging, see [OVID-ME](https://github.com/clawdreyhepburn/ovid-me).
 
 ## Token Format
 
@@ -107,30 +85,33 @@ Each agent holds an Ed25519 keypair. The parent signs the child's OVID (includin
 
 ## Enforcement Flow
 
-```
-Spawn time:
-  Parent writes mandate (Cedar policy set)
-  → OVID queries PolicySource for parent's effective policy
-  → Subset proof: mandate ⊆ parent's policy?
-  → If proven: mint OVID token
-  → If not: refuse (error)
+OVID handles token creation and verification. Mandate evaluation is performed by [OVID-ME](https://github.com/clawdreyhepburn/ovid-me):
 
-Runtime (every tool call):
+```
+Spawn time (OVID):
+  Parent writes mandate (Cedar policy set)
+  → OVID creates and signs the token
+  → Token carries mandate + identity + parent chain
+
+Spawn time (OVID-ME, optional):
+  → OVID-ME queries PolicySource for parent's effective policy
+  → Subset proof: mandate ⊆ parent's policy?
+  → If proven: proceed. If not: refuse to mint.
+
+Runtime (OVID-ME + Carapace):
   Agent requests action
-  → OVID evaluates action against mandate → allow/deny
-  → Deployment engine evaluates action against ceiling → allow/deny
+  → OVID-ME evaluates action against mandate → allow/deny
+  → Carapace evaluates action against deployment ceiling → allow/deny
   → Both must allow
 ```
 
 ## Audit
 
-OVID provides append-only audit logging:
+Audit logging is provided by [OVID-ME](https://github.com/clawdreyhepburn/ovid-me):
 
-- **Tier 1**: JSONL file logger (opt-in via `OVID_AUDIT_LOG` env var)
+- **Tier 1**: JSONL file logger
 - **Tier 2**: SQLite database with structured queries (issuance, decisions, chains)
 - **Tier 3**: Web dashboard with timeline, delegation tree, Sankey flow, policy usage, action breakdown
-
-Every OVID issuance and mandate evaluation is recorded for forensics.
 
 ## Design Principles
 
