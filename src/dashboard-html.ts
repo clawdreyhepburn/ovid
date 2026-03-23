@@ -384,7 +384,7 @@ export function dashboardHtml(): string {
       '</tr></thead><tbody>';
     for (const a of sorted) {
       const total = a.decision_count || 1;
-      html += '<tr style="cursor:pointer" onclick="showAgent(\\'' + (a.agent_jti||'').replace(/'/g,"\\\\'") + '\\')">' +
+      html += '<tr style="cursor:pointer" onclick="showAgent(&quot;' + encodeURIComponent(a.agent_jti||'') + '&quot;)">' +
         '<td class="truncate" style="font-family:monospace">' + fmtId(a.agent_jti) + '</td>' +
         '<td><span class="badge badge-role">' + (a.role||'?') + '</span></td>' +
         '<td>' + (a.depth ?? '?') + '</td><td>' + a.decision_count + '</td>' +
@@ -557,7 +557,8 @@ export function dashboardHtml(): string {
   }
 
   // Agent detail modal
-  window.showAgent = async function(jti) {
+  window.showAgent = async function(rawJti) {
+    const jti = decodeURIComponent(rawJti);
     const [agent, history] = await Promise.all([
       fetch('/api/agents/' + encodeURIComponent(jti) + qs()).then(r => r.json()).catch(() => null),
       fetch('/api/agents/' + encodeURIComponent(jti) + qs()).then(r => r.json()).catch(() => null)
@@ -574,7 +575,7 @@ export function dashboardHtml(): string {
         const chain = typeof a.parent_chain === 'string' ? JSON.parse(a.parent_chain) : a.parent_chain;
         if (chain.length) {
           html += '<h2 style="font-size:13px;margin:8px 0">Parent Chain</h2>';
-          chain.forEach(p => { html += '<a href="#" onclick="showAgent(\\'' + p + '\\');return false" style="margin-right:8px;font-family:monospace;font-size:12px">' + fmtId(p) + '</a>'; });
+          chain.forEach(p => { html += '<a href="#" onclick="showAgent(&quot;' + encodeURIComponent(p) + '&quot;);return false" style="margin-right:8px;font-family:monospace;font-size:12px">' + fmtId(p) + '</a>'; });
         }
       }
     }
@@ -607,7 +608,7 @@ export function dashboardHtml(): string {
       if (!tree || !tree.length) continue;
       for (const node of tree) {
         const d = node.depth || 0;
-        html += '<div class="tree-node" style="--depth:' + d + '" onclick="showAgent(\\'' + (node.jti||'').replace(/'/g,"\\\\'") + '\\')">' +
+        html += '<div class="tree-node" style="--depth:' + d + '" onclick="showAgent(&quot;' + encodeURIComponent(node.jti||'') + '&quot;)">' +
           '<span class="tree-toggle">' + (d > 0 ? '└' : '●') + '</span>' +
           '<span class="tree-id">' + fmtId(node.jti) + '</span>' +
           (node.role ? '<span class="badge badge-role">' + node.role + '</span>' : '') +
@@ -629,7 +630,7 @@ export function dashboardHtml(): string {
       const total = r.decision_count || 1;
       const denyPct = ((r.deny_count / total) * 100).toFixed(1);
       const denyColor = r.deny_count > 0 ? 'var(--red)' : 'var(--muted)';
-      html += '<tr class="clickable-row" onclick="showRoleDetail(\'' + encodeURIComponent(r.role) + '\')">' +
+      html += '<tr class="clickable-row" onclick="showRoleDetail(&quot;' + encodeURIComponent(r.role) + '&quot;)">' +
         '<td><span class="role-badge">' + (r.role || 'unknown') + '</span></td>' +
         '<td>' + r.agent_count + '</td>' +
         '<td>' + r.decision_count + '</td>' +
