@@ -10,14 +10,18 @@ export async function createOvid(options: CreateOvidOptions): Promise<OvidToken>
   const {
     issuerKeys,
     issuerOvid,
-    role,
+    mandate,
     ttlSeconds = DEFAULT_TTL,
-    maxChainDepth = DEFAULT_MAX_CHAIN_DEPTH,
     kid,
     issuer,
   } = options;
 
+  if (!mandate || mandate.rarFormat !== 'cedar' || !mandate.policySet) {
+    throw new Error('mandate is required with rarFormat "cedar" and a non-empty policySet');
+  }
+
   const parentClaims = issuerOvid?.claims;
+  const maxChainDepth = DEFAULT_MAX_CHAIN_DEPTH;
 
   // Check lifetime attenuation
   if (parentClaims) {
@@ -41,7 +45,7 @@ export async function createOvid(options: CreateOvidOptions): Promise<OvidToken>
   const agentPub = await exportPublicKeyBase64(agentKeys.publicKey);
 
   const issuerName = issuer ?? parentClaims?.sub ?? 'root';
-  const agentId = options.agentId ?? `${issuerName}/${role}-${randomHex(4)}`;
+  const agentId = options.agentId ?? `${issuerName}/agent-${randomHex(4)}`;
 
   const now = Math.floor(Date.now() / 1000);
 
@@ -51,11 +55,11 @@ export async function createOvid(options: CreateOvidOptions): Promise<OvidToken>
     sub: agentId,
     iat: now,
     exp: now + ttlSeconds,
-    ovid_version: 1,
-    role,
+    ovid_version: '0.2.0',
     parent_chain: parentChain,
     ...(parentClaims ? { parent_ovid: parentClaims.jti } : {}),
     agent_pub: agentPub,
+    mandate,
   };
 
   const header = { alg: 'EdDSA' as const, typ: 'ovid+jwt' };

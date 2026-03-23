@@ -1,29 +1,55 @@
 import { describe, it, expect } from 'vitest';
 import { createOvid, generateKeypair, verifyOvid } from '../src/index.js';
+import type { CedarMandate } from '../src/config.js';
+
+const testMandate: CedarMandate = {
+  rarFormat: 'cedar',
+  policySet: 'permit(principal, action == Ovid::Action::"read_file", resource);',
+};
+
+const wideMandate: CedarMandate = {
+  rarFormat: 'cedar',
+  policySet: 'permit(principal, action, resource);',
+};
 
 describe('createOvid', () => {
-  it('issues a valid OVID JWT', async () => {
+  it('issues a valid OVID JWT with mandate', async () => {
     const keys = await generateKeypair();
     const ovid = await createOvid({
       issuerKeys: keys,
-      role: 'coder',
+      mandate: testMandate,
       issuer: 'root',
     });
     expect(ovid.jwt).toContain('.');
-    expect(ovid.claims.role).toBe('coder');
-    expect(ovid.claims.ovid_version).toBe(1);
+    expect(ovid.claims.mandate).toEqual(testMandate);
+    expect(ovid.claims.ovid_version).toBe('0.2.0');
     expect(ovid.claims.parent_chain).toEqual([]);
 
     const result = await verifyOvid(ovid.jwt, keys.publicKey);
     expect(result.valid).toBe(true);
-    expect(result.role).toBe('coder');
+    expect(result.mandate).toEqual(testMandate);
+  });
+
+  it('rejects missing or invalid mandate', async () => {
+    const keys = await generateKeypair();
+    await expect(createOvid({
+      issuerKeys: keys,
+      mandate: { rarFormat: 'cedar', policySet: '' },
+      issuer: 'root',
+    })).rejects.toThrow('mandate is required');
+
+    await expect(createOvid({
+      issuerKeys: keys,
+      mandate: { rarFormat: 'not-cedar' as any, policySet: 'permit;' },
+      issuer: 'root',
+    })).rejects.toThrow('mandate is required');
   });
 
   it('rejects child lifetime exceeding parent', async () => {
     const parentKeys = await generateKeypair();
     const parent = await createOvid({
       issuerKeys: parentKeys,
-      role: 'orchestrator',
+      mandate: wideMandate,
       issuer: 'root',
       ttlSeconds: 60,
     });
@@ -31,7 +57,7 @@ describe('createOvid', () => {
     await expect(createOvid({
       issuerKeys: parent.keys,
       issuerOvid: parent,
-      role: 'worker',
+      mandate: testMandate,
       ttlSeconds: 3600,
     })).rejects.toThrow('Lifetime attenuation violation');
   });
@@ -40,7 +66,7 @@ describe('createOvid', () => {
     const rootKeys = await generateKeypair();
     const parent = await createOvid({
       issuerKeys: rootKeys,
-      role: 'orchestrator',
+      mandate: wideMandate,
       issuer: 'clawdrey',
       ttlSeconds: 3600,
     });
@@ -48,38 +74,47 @@ describe('createOvid', () => {
     const child = await createOvid({
       issuerKeys: parent.keys,
       issuerOvid: parent,
-      role: 'reviewer',
+      mandate: testMandate,
       ttlSeconds: 1800,
     });
 
     expect(child.claims.parent_chain.length).toBe(1);
     expect(child.claims.parent_ovid).toBe(parent.claims.jti);
+    expect(child.claims.mandate).toEqual(testMandate);
   });
 
   it('rejects chain depth exceeding max', async () => {
     const rootKeys = await generateKeypair();
     let current = await createOvid({
       issuerKeys: rootKeys,
-      role: 'root',
+      mandate: wideMandate,
       issuer: 'clawdrey',
       ttlSeconds: 3600,
-      maxChainDepth: 2,
     });
 
     current = await createOvid({
       issuerKeys: current.keys,
       issuerOvid: current,
-      role: 'child',
+      mandate: testMandate,
       ttlSeconds: 1800,
-      maxChainDepth: 2,
     });
 
+    // Default max depth is 5, so build up to it
+    for (let i = 0; i < 3; i++) {
+      current = await createOvid({
+        issuerKeys: current.keys,
+        issuerOvid: current,
+        mandate: testMandate,
+        ttlSeconds: 900,
+      });
+    }
+
+    // This should be depth 6, exceeding max 5
     await expect(createOvid({
       issuerKeys: current.keys,
       issuerOvid: current,
-      role: 'grandchild',
-      ttlSeconds: 900,
-      maxChainDepth: 2,
+      mandate: testMandate,
+      ttlSeconds: 600,
     })).rejects.toThrow('Chain depth');
   });
 });

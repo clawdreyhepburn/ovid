@@ -1,18 +1,24 @@
 import { describe, it, expect } from 'vitest';
 import { createOvid, generateKeypair, verifyOvid } from '../src/index.js';
+import type { CedarMandate } from '../src/config.js';
+
+const testMandate: CedarMandate = {
+  rarFormat: 'cedar',
+  policySet: 'permit(principal, action == Ovid::Action::"read_file", resource);',
+};
 
 describe('verifyOvid', () => {
-  it('verifies a valid OVID', async () => {
+  it('verifies a valid OVID with mandate', async () => {
     const keys = await generateKeypair();
     const ovid = await createOvid({
       issuerKeys: keys,
-      role: 'worker',
+      mandate: testMandate,
       issuer: 'root',
     });
     const result = await verifyOvid(ovid.jwt, keys.publicKey);
     expect(result.valid).toBe(true);
     expect(result.principal).toBe(ovid.claims.sub);
-    expect(result.role).toBe('worker');
+    expect(result.mandate).toEqual(testMandate);
     expect(result.expiresIn).toBeGreaterThan(0);
   });
 
@@ -20,7 +26,7 @@ describe('verifyOvid', () => {
     const keys = await generateKeypair();
     const ovid = await createOvid({
       issuerKeys: keys,
-      role: 'worker',
+      mandate: testMandate,
       issuer: 'root',
     });
     const tampered = ovid.jwt.slice(0, -5) + 'XXXXX';
@@ -33,7 +39,7 @@ describe('verifyOvid', () => {
     const otherKeys = await generateKeypair();
     const ovid = await createOvid({
       issuerKeys: keys,
-      role: 'worker',
+      mandate: testMandate,
       issuer: 'root',
     });
     const result = await verifyOvid(ovid.jwt, otherKeys.publicKey);
@@ -44,7 +50,7 @@ describe('verifyOvid', () => {
     const keys = await generateKeypair();
     const ovid = await createOvid({
       issuerKeys: keys,
-      role: 'worker',
+      mandate: testMandate,
       issuer: 'root',
       ttlSeconds: -1,
     });

@@ -2,7 +2,7 @@ import { appendFileSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { OvidClaims, OvidResult } from './types.js';
 
-export type DecisionOutcome = 'deny' | 'allow-proven' | 'allow-unproven';
+export type DecisionOutcome = 'deny' | 'allow' | 'allow-proven' | 'allow-unproven';
 
 export interface AuditEntry {
   ts: string;
@@ -34,7 +34,8 @@ export class AuditLogger {
       jti: claims.jti,
       iss: claims.iss,
       sub: claims.sub,
-      role: claims.role,
+      role: claims.role ?? 'mandate',
+      mandate: claims.mandate ? 'present' : 'absent',
       parent_chain: claims.parent_chain,
       exp: claims.exp,
     });
@@ -47,7 +48,7 @@ export class AuditLogger {
       jti,
       valid: result.valid,
       principal: result.principal,
-      role: result.role,
+      mandate: result.mandate ? 'present' : 'absent',
       chain: result.chain,
       expiresIn: result.expiresIn,
       ...(verifier ? { verifier } : {}),

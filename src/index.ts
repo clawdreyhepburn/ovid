@@ -15,3 +15,9 @@ export type {
   VerifyOvidOptions,
   OvidToken,
 } from './types.js';
+export type {
+  OvidConfig,
+  PolicySource,
+  CedarMandate,
+} from './config.js';
+export { DEFAULT_CONFIG, resolveConfig } from './config.js';

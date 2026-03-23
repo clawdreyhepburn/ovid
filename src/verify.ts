@@ -14,7 +14,9 @@ export async function verifyOvid(
 
     const claims = payload as unknown as OvidClaims;
 
-    if (claims.ovid_version !== 1) {
+    // Accept both old (numeric 1) and new (string "0.2.0") version formats
+    const version = claims.ovid_version;
+    if (version !== '0.2.0' && (version as unknown) !== 1) {
       return invalid();
     }
 
@@ -25,10 +27,15 @@ export async function verifyOvid(
       return invalid();
     }
 
+    // Mandate is required for v0.2.0+ tokens
+    if (typeof version === 'string' && !claims.mandate?.policySet) {
+      return invalid();
+    }
+
     const result: OvidResult = {
       valid: true,
       principal: claims.sub,
-      role: claims.role,
+      mandate: claims.mandate ?? { rarFormat: 'cedar', policySet: '' },
       chain: claims.parent_chain,
       expiresIn,
     };
@@ -46,7 +53,7 @@ function invalid(): OvidResult {
   return {
     valid: false,
     principal: '',
-    role: '',
+    mandate: { rarFormat: 'cedar', policySet: '' },
     chain: [],
     expiresIn: 0,
   };
