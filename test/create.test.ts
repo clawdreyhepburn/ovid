@@ -7,7 +7,6 @@ describe('createOvid', () => {
     const ovid = await createOvid({
       issuerKeys: keys,
       role: 'coder',
-      scope: { tools: { allow: ['read_file', 'write'] } },
       issuer: 'root',
     });
     expect(ovid.jwt).toContain('.');
@@ -15,28 +14,9 @@ describe('createOvid', () => {
     expect(ovid.claims.ovid_version).toBe(1);
     expect(ovid.claims.parent_chain).toEqual([]);
 
-    // Verify it
     const result = await verifyOvid(ovid.jwt, keys.publicKey);
     expect(result.valid).toBe(true);
     expect(result.role).toBe('coder');
-  });
-
-  it('rejects child scope wider than parent', async () => {
-    const parentKeys = await generateKeypair();
-    const parent = await createOvid({
-      issuerKeys: parentKeys,
-      role: 'orchestrator',
-      scope: { tools: { allow: ['read_file'] } },
-      issuer: 'root',
-      ttlSeconds: 3600,
-    });
-
-    await expect(createOvid({
-      issuerKeys: parent.keys,
-      issuerOvid: parent,
-      role: 'worker',
-      scope: { tools: { allow: ['read_file', 'exec'] } },
-    })).rejects.toThrow('Scope attenuation violation');
   });
 
   it('rejects child lifetime exceeding parent', async () => {
@@ -44,7 +24,6 @@ describe('createOvid', () => {
     const parent = await createOvid({
       issuerKeys: parentKeys,
       role: 'orchestrator',
-      scope: {},
       issuer: 'root',
       ttlSeconds: 60,
     });
@@ -53,7 +32,6 @@ describe('createOvid', () => {
       issuerKeys: parent.keys,
       issuerOvid: parent,
       role: 'worker',
-      scope: {},
       ttlSeconds: 3600,
     })).rejects.toThrow('Lifetime attenuation violation');
   });
@@ -63,7 +41,6 @@ describe('createOvid', () => {
     const parent = await createOvid({
       issuerKeys: rootKeys,
       role: 'orchestrator',
-      scope: { tools: { allow: ['read_file', 'write'] } },
       issuer: 'clawdrey',
       ttlSeconds: 3600,
     });
@@ -72,11 +49,37 @@ describe('createOvid', () => {
       issuerKeys: parent.keys,
       issuerOvid: parent,
       role: 'reviewer',
-      scope: { tools: { allow: ['read_file'] } },
       ttlSeconds: 1800,
     });
 
-    expect(child.claims.parent_chain).toEqual(['clawdrey']);
+    expect(child.claims.parent_chain.length).toBe(1);
     expect(child.claims.parent_ovid).toBe(parent.claims.jti);
+  });
+
+  it('rejects chain depth exceeding max', async () => {
+    const rootKeys = await generateKeypair();
+    let current = await createOvid({
+      issuerKeys: rootKeys,
+      role: 'root',
+      issuer: 'clawdrey',
+      ttlSeconds: 3600,
+      maxChainDepth: 2,
+    });
+
+    current = await createOvid({
+      issuerKeys: current.keys,
+      issuerOvid: current,
+      role: 'child',
+      ttlSeconds: 1800,
+      maxChainDepth: 2,
+    });
+
+    await expect(createOvid({
+      issuerKeys: current.keys,
+      issuerOvid: current,
+      role: 'grandchild',
+      ttlSeconds: 900,
+      maxChainDepth: 2,
+    })).rejects.toThrow('Chain depth');
   });
 });

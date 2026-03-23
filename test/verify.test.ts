@@ -7,14 +7,13 @@ describe('verifyOvid', () => {
     const ovid = await createOvid({
       issuerKeys: keys,
       role: 'worker',
-      scope: { tools: { allow: ['read_file'] } },
       issuer: 'root',
     });
     const result = await verifyOvid(ovid.jwt, keys.publicKey);
     expect(result.valid).toBe(true);
     expect(result.principal).toBe(ovid.claims.sub);
+    expect(result.role).toBe('worker');
     expect(result.expiresIn).toBeGreaterThan(0);
-    expect(result.scope).toEqual({ tools: { allow: ['read_file'] } });
   });
 
   it('rejects tampered JWT', async () => {
@@ -22,7 +21,6 @@ describe('verifyOvid', () => {
     const ovid = await createOvid({
       issuerKeys: keys,
       role: 'worker',
-      scope: {},
       issuer: 'root',
     });
     const tampered = ovid.jwt.slice(0, -5) + 'XXXXX';
@@ -36,7 +34,6 @@ describe('verifyOvid', () => {
     const ovid = await createOvid({
       issuerKeys: keys,
       role: 'worker',
-      scope: {},
       issuer: 'root',
     });
     const result = await verifyOvid(ovid.jwt, otherKeys.publicKey);
@@ -48,9 +45,8 @@ describe('verifyOvid', () => {
     const ovid = await createOvid({
       issuerKeys: keys,
       role: 'worker',
-      scope: {},
       issuer: 'root',
-      ttlSeconds: -1, // already expired
+      ttlSeconds: -1,
     });
     const result = await verifyOvid(ovid.jwt, keys.publicKey);
     expect(result.valid).toBe(false);

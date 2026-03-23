@@ -13,7 +13,6 @@ export async function verifyOvid(
 
     const claims = payload as unknown as OvidClaims;
 
-    // Check ovid_version
     if (claims.ovid_version !== 1) {
       return invalid();
     }
@@ -29,7 +28,6 @@ export async function verifyOvid(
       valid: true,
       principal: claims.sub,
       role: claims.role,
-      scope: claims.scope,
       chain: claims.parent_chain,
       expiresIn,
     };
@@ -43,7 +41,6 @@ function invalid(): OvidResult {
     valid: false,
     principal: '',
     role: '',
-    scope: {},
     chain: [],
     expiresIn: 0,
   };

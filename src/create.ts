@@ -1,6 +1,5 @@
 import { SignJWT } from 'jose';
 import { generateKeypair, exportPublicKeyBase64 } from './keys.js';
-import { isSubsetScope } from './scope.js';
 import type { CreateOvidOptions, OvidToken, OvidClaims } from './types.js';
 
 const DEFAULT_TTL = 1800;
@@ -11,22 +10,13 @@ export async function createOvid(options: CreateOvidOptions): Promise<OvidToken>
     issuerKeys,
     issuerOvid,
     role,
-    scope,
     ttlSeconds = DEFAULT_TTL,
     maxChainDepth = DEFAULT_MAX_CHAIN_DEPTH,
     kid,
     issuer,
   } = options;
 
-  // Derive parent info
   const parentClaims = issuerOvid?.claims;
-
-  // Check scope attenuation against parent
-  if (parentClaims) {
-    if (!isSubsetScope(scope, parentClaims.scope)) {
-      throw new Error('Scope attenuation violation: child scope exceeds parent scope');
-    }
-  }
 
   // Check lifetime attenuation
   if (parentClaims) {
@@ -39,7 +29,7 @@ export async function createOvid(options: CreateOvidOptions): Promise<OvidToken>
 
   // Check chain depth
   const parentChain = parentClaims
-    ? [...parentClaims.parent_chain, parentClaims.iss]
+    ? [...parentClaims.parent_chain, parentClaims.sub]
     : [];
   if (parentChain.length >= maxChainDepth) {
     throw new Error(`Chain depth ${parentChain.length + 1} exceeds max ${maxChainDepth}`);
@@ -62,7 +52,6 @@ export async function createOvid(options: CreateOvidOptions): Promise<OvidToken>
     exp: now + ttlSeconds,
     ovid_version: 1,
     role,
-    scope,
     parent_chain: parentChain,
     ...(parentClaims ? { parent_ovid: parentClaims.jti } : {}),
     agent_pub: agentPub,
