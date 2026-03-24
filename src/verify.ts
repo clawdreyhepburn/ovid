@@ -1,7 +1,6 @@
 import { jwtVerify } from 'jose';
-import type { OvidResult, VerifyOvidOptions, OvidClaims } from './types.js';
-
-const EMPTY_MANDATE = { type: '', rarFormat: 'cedar' as const, policySet: '' };
+import type { OvidResult, VerifyOvidOptions, OvidClaims, AuthorizationDetail } from './types.js';
+import { EMPTY_AUTHORIZATION_DETAIL } from './types.js';
 
 export async function verifyOvid(
   jwt: string,
@@ -15,34 +14,56 @@ export async function verifyOvid(
 
     const claims = payload as unknown as OvidClaims;
 
-    // Accept both old (numeric 1) and new (string "0.2.0") version formats
-    const version = claims.ovid_version;
-    if (version !== '0.2.0' && (version as unknown) !== 1) {
+    // Backward compat: convert old v0.2.x tokens with top-level mandate claim
+    const legacy = payload as any;
+    if (legacy.mandate && !claims.authorization_details) {
+      claims.authorization_details = [{
+        type: legacy.mandate.type || 'agent_mandate',
+        rarFormat: legacy.mandate.rarFormat,
+        policySet: legacy.mandate.policySet,
+        parent_chain: legacy.parent_chain,
+        agent_pub: legacy.agent_pub,
+        ovid_version: legacy.ovid_version,
+      }];
+    }
+
+    // Validate authorization_details
+    if (!Array.isArray(claims.authorization_details) || claims.authorization_details.length === 0) {
+      return invalid();
+    }
+
+    // Find the agent_mandate entry
+    const mandateDetail = claims.authorization_details.find(d => d.type === 'agent_mandate')
+      ?? claims.authorization_details[0];
+
+    // Version check: accept 0.2.0 (legacy converted), 0.3.0, or old numeric 1
+    const version = mandateDetail.ovid_version;
+    if (version && version !== '0.3.0' && version !== '0.2.0' && (version as unknown) !== 1) {
       return invalid();
     }
 
     const now = Math.floor(Date.now() / 1000);
     const expiresIn = claims.exp - now;
-
     if (expiresIn <= 0) {
       return invalid();
     }
 
-    // Mandate is required for v0.2.0+ tokens
-    if (typeof version === 'string' && !claims.mandate?.policySet) {
+    // Mandate policySet is required for versioned tokens
+    if (version && !mandateDetail.policySet) {
       return invalid();
     }
 
-    // Backfill type if missing (tokens minted before type was required)
-    const mandate = claims.mandate
-      ? { ...claims.mandate, type: claims.mandate.type || 'agent_mandate' }
-      : EMPTY_MANDATE;
+    // Backfill type if missing
+    const mandate: AuthorizationDetail = {
+      ...mandateDetail,
+      type: mandateDetail.type || 'agent_mandate',
+    };
 
     return {
       valid: true,
       principal: claims.sub,
       mandate,
-      chain: claims.parent_chain,
+      chain: mandateDetail.parent_chain ?? [],
       expiresIn,
     };
   } catch {
@@ -54,7 +75,7 @@ function invalid(): OvidResult {
   return {
     valid: false,
     principal: '',
-    mandate: EMPTY_MANDATE,
+    mandate: EMPTY_AUTHORIZATION_DETAIL,
     chain: [],
     expiresIn: 0,
   };

@@ -1,7 +1,7 @@
 import { SignJWT } from 'jose';
 import { generateKeypair, exportPublicKeyBase64 } from './keys.js';
 import { validateCedarSyntax } from './validate.js';
-import type { CreateOvidOptions, OvidToken, OvidClaims, KeyPair } from './types.js';
+import type { CreateOvidOptions, OvidToken, OvidClaims, KeyPair, AuthorizationDetail } from './types.js';
 
 const DEFAULT_TTL = 1800;
 const DEFAULT_MAX_CHAIN_DEPTH = 5;
@@ -10,19 +10,32 @@ export async function createOvid(options: CreateOvidOptions): Promise<OvidToken>
   const {
     issuerKeys,
     issuerOvid,
-    mandate,
     ttlSeconds = DEFAULT_TTL,
     kid,
     issuer,
   } = options;
 
-  if (!mandate || mandate.rarFormat !== 'cedar' || !mandate.policySet || !mandate.type) {
-    throw new Error('mandate is required with type, rarFormat "cedar", and a non-empty policySet');
+  // Accept either authorizationDetails or legacy mandate field
+  let details: AuthorizationDetail[];
+  if (options.authorizationDetails) {
+    details = Array.isArray(options.authorizationDetails)
+      ? [...options.authorizationDetails]
+      : [options.authorizationDetails];
+  } else if (options.mandate) {
+    details = [options.mandate];
+  } else {
+    throw new Error('authorizationDetails (or legacy mandate) is required');
   }
 
-  const syntaxResult = validateCedarSyntax(mandate.policySet);
-  if (!syntaxResult.valid) {
-    throw new Error(`Invalid Cedar policy syntax: ${syntaxResult.error}`);
+  // Validate each detail
+  for (const detail of details) {
+    if (!detail || detail.rarFormat !== 'cedar' || !detail.policySet || !detail.type) {
+      throw new Error('mandate is required with type, rarFormat "cedar", and a non-empty policySet');
+    }
+    const syntaxResult = validateCedarSyntax(detail.policySet);
+    if (!syntaxResult.valid) {
+      throw new Error(`Invalid Cedar policy syntax: ${syntaxResult.error}`);
+    }
   }
 
   const parentClaims = issuerOvid?.claims;
@@ -37,9 +50,10 @@ export async function createOvid(options: CreateOvidOptions): Promise<OvidToken>
     }
   }
 
-  // Check chain depth
+  // Check chain depth — extract parent_chain from first authorization detail
+  const parentDetail = parentClaims?.authorization_details?.[0];
   const parentChain = parentClaims
-    ? [...parentClaims.parent_chain, parentClaims.sub]
+    ? [...(parentDetail?.parent_chain ?? []), parentClaims.sub]
     : [];
   if (parentChain.length >= maxChainDepth) {
     throw new Error(`Chain depth ${parentChain.length + 1} exceeds max ${maxChainDepth}`);
@@ -54,17 +68,22 @@ export async function createOvid(options: CreateOvidOptions): Promise<OvidToken>
 
   const now = Math.floor(Date.now() / 1000);
 
+  // Set OVID extensions on the first detail
+  details[0] = {
+    ...details[0],
+    parent_chain: parentChain,
+    agent_pub: agentPub,
+    ovid_version: '0.3.0',
+  };
+
   const claims: OvidClaims = {
     jti: agentId,
     iss: issuerName,
     sub: agentId,
     iat: now,
     exp: now + ttlSeconds,
-    ovid_version: '0.2.0',
-    parent_chain: parentChain,
+    authorization_details: details,
     ...(parentClaims ? { parent_ovid: parentClaims.jti } : {}),
-    agent_pub: agentPub,
-    mandate,
   };
 
   const header = { alg: 'EdDSA' as const, typ: 'ovid+jwt' };
@@ -89,7 +108,11 @@ export async function renewOvid(
 ): Promise<OvidToken> {
   return createOvid({
     issuerKeys,
-    mandate: existingToken.claims.mandate,
+    authorizationDetails: existingToken.claims.authorization_details.map(d => ({
+      type: d.type,
+      rarFormat: d.rarFormat,
+      policySet: d.policySet,
+    })),
     agentId: existingToken.claims.sub,
     issuer: existingToken.claims.iss,
     ttlSeconds,

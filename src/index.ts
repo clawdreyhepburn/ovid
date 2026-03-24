@@ -2,6 +2,7 @@ export { generateKeypair, exportPublicKeyBase64, importPublicKeyBase64 } from '.
 export { validateCedarSyntax } from './validate.js';
 export { createOvid, renewOvid } from './create.js';
 export { verifyOvid } from './verify.js';
+export { EMPTY_AUTHORIZATION_DETAIL, EMPTY_MANDATE } from './types.js';
 export type {
   OvidClaims,
   OvidResult,
@@ -9,5 +10,6 @@ export type {
   CreateOvidOptions,
   VerifyOvidOptions,
   OvidToken,
+  AuthorizationDetail,
   CedarMandate,
 } from './types.js';

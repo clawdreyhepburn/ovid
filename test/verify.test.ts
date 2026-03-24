@@ -1,25 +1,25 @@
 import { describe, it, expect } from 'vitest';
 import { createOvid, generateKeypair, verifyOvid } from '../src/index.js';
-import type { CedarMandate } from '../src/types.js';
+import type { AuthorizationDetail } from '../src/types.js';
 
-const testMandate: CedarMandate = {
+const testDetail: AuthorizationDetail = {
   type: 'agent_mandate',
   rarFormat: 'cedar',
   policySet: 'permit(principal, action == Ovid::Action::"read_file", resource);',
 };
 
 describe('verifyOvid', () => {
-  it('verifies a valid OVID with mandate', async () => {
+  it('verifies a valid OVID with authorization_details', async () => {
     const keys = await generateKeypair();
     const ovid = await createOvid({
       issuerKeys: keys,
-      mandate: testMandate,
+      authorizationDetails: testDetail,
       issuer: 'root',
     });
     const result = await verifyOvid(ovid.jwt, keys.publicKey);
     expect(result.valid).toBe(true);
     expect(result.principal).toBe(ovid.claims.sub);
-    expect(result.mandate).toEqual(testMandate);
+    expect(result.mandate.policySet).toBe(testDetail.policySet);
     expect(result.expiresIn).toBeGreaterThan(0);
   });
 
@@ -27,7 +27,7 @@ describe('verifyOvid', () => {
     const keys = await generateKeypair();
     const ovid = await createOvid({
       issuerKeys: keys,
-      mandate: testMandate,
+      authorizationDetails: testDetail,
       issuer: 'root',
     });
     const tampered = ovid.jwt.slice(0, -5) + 'XXXXX';
@@ -40,7 +40,7 @@ describe('verifyOvid', () => {
     const otherKeys = await generateKeypair();
     const ovid = await createOvid({
       issuerKeys: keys,
-      mandate: testMandate,
+      authorizationDetails: testDetail,
       issuer: 'root',
     });
     const result = await verifyOvid(ovid.jwt, otherKeys.publicKey);
@@ -51,7 +51,7 @@ describe('verifyOvid', () => {
     const keys = await generateKeypair();
     const ovid = await createOvid({
       issuerKeys: keys,
-      mandate: testMandate,
+      authorizationDetails: testDetail,
       issuer: 'root',
       ttlSeconds: -1,
     });
