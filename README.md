@@ -212,10 +212,34 @@ ovid/
 
 ---
 
+## How OVID Fits the Stack
+
+OVID provides **identity and mandates** — it tells you who a sub-agent is and what authority was delegated to it. But OVID itself doesn't enforce anything. Enforcement is handled by two complementary layers:
+
+1. **[Carapace](https://github.com/clawdreyhepburn/carapace)** — the deployment-level ceiling. The human defines what tools are allowed at all via Cedar policies, enforced on every `before_tool_call` hook. Binary allow/deny. This is the human's hard limit — no agent can exceed it regardless of what mandate it carries.
+
+2. **[OVID-ME](https://github.com/clawdreyhepburn/ovid-me)** — mandate evaluation. Reads the Cedar policy from a verified OVID token and evaluates whether the specific tool call is permitted by the parent's delegation. Three modes: enforce, dry-run, shadow.
+
+**Both must allow a tool call to proceed.** Carapace gates what the human permits; OVID-ME gates what the parent delegated. A sub-agent with a broad mandate still can't exceed the deployment ceiling, and a sub-agent under a permissive deployment ceiling still can't exceed its parent's mandate.
+
+```
+Tool call arrives
+  │
+  ├─ Carapace: "Does the deployment policy allow this?" ── deny ──> blocked
+  │                                                         │
+  │                                                       allow
+  │                                                         │
+  ├─ OVID-ME: "Does the agent's mandate allow this?"  ── deny ──> blocked
+  │                                                         │
+  │                                                       allow
+  │                                                         │
+  └─ Tool executes
+```
+
 ## Related Projects
 
 - **[@clawdreyhepburn/ovid-me](https://github.com/clawdreyhepburn/ovid-me)** — Cedar policy evaluation for OVID mandates (enforcement, audit, dashboard)
-- **[@clawdreyhepburn/carapace](https://github.com/clawdreyhepburn/carapace)** — Deployment-level policy ceiling (binary allow/deny, implements PolicySource)
+- **[@clawdreyhepburn/carapace](https://github.com/clawdreyhepburn/carapace)** — Deployment-level Cedar policy enforcement via OpenClaw's `before_tool_call` hook
 
 ## License
 
