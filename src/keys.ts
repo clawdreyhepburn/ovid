@@ -2,7 +2,7 @@ import { generateKeyPair, exportJWK, importJWK } from 'jose';
 import type { KeyPair } from './types.js';
 
 export async function generateKeypair(): Promise<KeyPair> {
-  const { publicKey, privateKey } = await generateKeyPair('EdDSA', { crv: 'Ed25519' });
+  const { publicKey, privateKey } = await generateKeyPair('EdDSA', { crv: 'Ed25519', extractable: true });
   return { publicKey, privateKey };
 }
 
