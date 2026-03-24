@@ -1,7 +1,7 @@
 import { SignJWT } from 'jose';
 import { generateKeypair, exportPublicKeyBase64 } from './keys.js';
 import { validateCedarSyntax } from './validate.js';
-import type { CreateOvidOptions, OvidToken, OvidClaims } from './types.js';
+import type { CreateOvidOptions, OvidToken, OvidClaims, KeyPair } from './types.js';
 
 const DEFAULT_TTL = 1800;
 const DEFAULT_MAX_CHAIN_DEPTH = 5;
@@ -16,8 +16,8 @@ export async function createOvid(options: CreateOvidOptions): Promise<OvidToken>
     issuer,
   } = options;
 
-  if (!mandate || mandate.rarFormat !== 'cedar' || !mandate.policySet) {
-    throw new Error('mandate is required with rarFormat "cedar" and a non-empty policySet');
+  if (!mandate || mandate.rarFormat !== 'cedar' || !mandate.policySet || !mandate.type) {
+    throw new Error('mandate is required with type, rarFormat "cedar", and a non-empty policySet');
   }
 
   const syntaxResult = validateCedarSyntax(mandate.policySet);
@@ -80,6 +80,20 @@ export async function createOvid(options: CreateOvidOptions): Promise<OvidToken>
     .sign(issuerKeys.privateKey);
 
   return { jwt, claims, keys: agentKeys };
+}
+
+export async function renewOvid(
+  existingToken: OvidToken,
+  issuerKeys: KeyPair,
+  ttlSeconds?: number,
+): Promise<OvidToken> {
+  return createOvid({
+    issuerKeys,
+    mandate: existingToken.claims.mandate,
+    agentId: existingToken.claims.sub,
+    issuer: existingToken.claims.iss,
+    ttlSeconds,
+  });
 }
 
 function randomHex(bytes: number): string {

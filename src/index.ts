@@ -1,6 +1,6 @@
 export { generateKeypair, exportPublicKeyBase64, importPublicKeyBase64 } from './keys.js';
 export { validateCedarSyntax } from './validate.js';
-export { createOvid } from './create.js';
+export { createOvid, renewOvid } from './create.js';
 export { verifyOvid } from './verify.js';
 export type {
   OvidClaims,

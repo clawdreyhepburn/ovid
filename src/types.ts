@@ -1,6 +1,18 @@
-/** Cedar policy set in RAR format (draft-cecchetti-oauth-rar-cedar) */
+/**
+ * Cedar policy set embedded in OVID tokens.
+ *
+ * Inspired by draft-cecchetti-oauth-rar-cedar-02, adapted for agent mandates.
+ * Differences from the RAR draft:
+ *   - `type` is an application-defined string (RAR requires it per RFC 9396)
+ *   - Embedded directly in JWT `mandate` claim, not in `authorization_details` array
+ *   - Designed for agent-to-agent delegation, not OAuth client-to-AS flow
+ */
 export interface CedarMandate {
+  /** Application-defined type (required by RFC 9396 authorization_details) */
+  type: string
+  /** Must be "cedar" to use this profile */
   rarFormat: 'cedar'
+  /** Cedar policy text — the agent's mandate */
   policySet: string
 }
 
@@ -15,10 +27,6 @@ export interface OvidClaims {
   parent_ovid?: string;
   agent_pub: string;
   mandate: CedarMandate;
-
-  // Legacy field — kept for backward compatibility with audit DB
-  // New code should use mandate.policySet instead
-  role?: string;
 }
 
 export interface KeyPair {

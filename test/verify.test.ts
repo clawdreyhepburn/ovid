@@ -3,6 +3,7 @@ import { createOvid, generateKeypair, verifyOvid } from '../src/index.js';
 import type { CedarMandate } from '../src/types.js';
 
 const testMandate: CedarMandate = {
+  type: 'agent_mandate',
   rarFormat: 'cedar',
   policySet: 'permit(principal, action == Ovid::Action::"read_file", resource);',
 };

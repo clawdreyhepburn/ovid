@@ -1,6 +1,8 @@
 import { jwtVerify } from 'jose';
 import type { OvidResult, VerifyOvidOptions, OvidClaims } from './types.js';
 
+const EMPTY_MANDATE = { type: '', rarFormat: 'cedar' as const, policySet: '' };
+
 export async function verifyOvid(
   jwt: string,
   issuerPublicKey: CryptoKey,
@@ -31,10 +33,15 @@ export async function verifyOvid(
       return invalid();
     }
 
+    // Backfill type if missing (tokens minted before type was required)
+    const mandate = claims.mandate
+      ? { ...claims.mandate, type: claims.mandate.type || 'agent_mandate' }
+      : EMPTY_MANDATE;
+
     return {
       valid: true,
       principal: claims.sub,
-      mandate: claims.mandate ?? { rarFormat: 'cedar', policySet: '' },
+      mandate,
       chain: claims.parent_chain,
       expiresIn,
     };
@@ -47,7 +54,7 @@ function invalid(): OvidResult {
   return {
     valid: false,
     principal: '',
-    mandate: { rarFormat: 'cedar', policySet: '' },
+    mandate: EMPTY_MANDATE,
     chain: [],
     expiresIn: 0,
   };

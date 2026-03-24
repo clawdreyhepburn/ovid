@@ -1,13 +1,15 @@
 import { describe, it, expect } from 'vitest';
-import { createOvid, generateKeypair, verifyOvid, validateCedarSyntax } from '../src/index.js';
+import { createOvid, renewOvid, generateKeypair, verifyOvid, validateCedarSyntax } from '../src/index.js';
 import type { CedarMandate } from '../src/types.js';
 
 const testMandate: CedarMandate = {
+  type: 'agent_mandate',
   rarFormat: 'cedar',
   policySet: 'permit(principal, action == Ovid::Action::"read_file", resource);',
 };
 
 const wideMandate: CedarMandate = {
+  type: 'agent_mandate',
   rarFormat: 'cedar',
   policySet: 'permit(principal, action, resource);',
 };
@@ -34,13 +36,19 @@ describe('createOvid', () => {
     const keys = await generateKeypair();
     await expect(createOvid({
       issuerKeys: keys,
-      mandate: { rarFormat: 'cedar', policySet: '' },
+      mandate: { type: 'agent_mandate', rarFormat: 'cedar', policySet: '' },
       issuer: 'root',
     })).rejects.toThrow('mandate is required');
 
     await expect(createOvid({
       issuerKeys: keys,
-      mandate: { rarFormat: 'not-cedar' as any, policySet: 'permit;' },
+      mandate: { type: 'agent_mandate', rarFormat: 'not-cedar' as any, policySet: 'permit;' },
+      issuer: 'root',
+    })).rejects.toThrow('mandate is required');
+
+    await expect(createOvid({
+      issuerKeys: keys,
+      mandate: { rarFormat: 'cedar', policySet: 'permit(principal, action, resource);' } as any,
       issuer: 'root',
     })).rejects.toThrow('mandate is required');
   });
@@ -122,7 +130,7 @@ describe('createOvid', () => {
     const keys = await generateKeypair();
     await expect(createOvid({
       issuerKeys: keys,
-      mandate: { rarFormat: 'cedar', policySet: 'not cedar at all' },
+      mandate: { type: 'agent_mandate', rarFormat: 'cedar', policySet: 'not cedar at all' },
       issuer: 'root',
     })).rejects.toThrow('Invalid Cedar policy syntax');
   });
@@ -131,7 +139,7 @@ describe('createOvid', () => {
     const keys = await generateKeypair();
     await expect(createOvid({
       issuerKeys: keys,
-      mandate: { rarFormat: 'cedar', policySet: 'permit(principal, action, resource)' },
+      mandate: { type: 'agent_mandate', rarFormat: 'cedar', policySet: 'permit(principal, action, resource)' },
       issuer: 'root',
     })).rejects.toThrow('Invalid Cedar policy syntax');
   });
@@ -140,7 +148,7 @@ describe('createOvid', () => {
     const keys = await generateKeypair();
     await expect(createOvid({
       issuerKeys: keys,
-      mandate: { rarFormat: 'cedar', policySet: 'permit(principal, action, resource;' },
+      mandate: { type: 'agent_mandate', rarFormat: 'cedar', policySet: 'permit(principal, action, resource;' },
       issuer: 'root',
     })).rejects.toThrow('Invalid Cedar policy syntax');
   });
@@ -153,10 +161,36 @@ describe('createOvid', () => {
     `;
     const ovid = await createOvid({
       issuerKeys: keys,
-      mandate: { rarFormat: 'cedar', policySet: multiPolicy },
+      mandate: { type: 'agent_mandate', rarFormat: 'cedar', policySet: multiPolicy },
       issuer: 'root',
     });
     expect(ovid.jwt).toContain('.');
+  });
+});
+
+describe('renewOvid', () => {
+  it('renews a token with same mandate and sub but new exp', async () => {
+    const keys = await generateKeypair();
+    const original = await createOvid({
+      issuerKeys: keys,
+      mandate: testMandate,
+      issuer: 'root',
+      ttlSeconds: 60,
+    });
+
+    // Small delay so iat differs
+    await new Promise(r => setTimeout(r, 50));
+
+    const renewed = await renewOvid(original, keys, 120);
+
+    expect(renewed.claims.sub).toBe(original.claims.sub);
+    expect(renewed.claims.iss).toBe(original.claims.iss);
+    expect(renewed.claims.mandate).toEqual(original.claims.mandate);
+    expect(renewed.claims.exp).toBeGreaterThanOrEqual(original.claims.exp);
+
+    const result = await verifyOvid(renewed.jwt, keys.publicKey);
+    expect(result.valid).toBe(true);
+    expect(result.mandate).toEqual(testMandate);
   });
 });
 

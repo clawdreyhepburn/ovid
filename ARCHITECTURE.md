@@ -14,7 +14,9 @@ Agents don't have roles. They have mandates — specific, task-scoped Cedar poli
 "You can read files in /src and /test, write to /test only, run npm test. Nothing else."
 ```
 
-This is expressed as a Cedar policy set embedded directly in the OVID token, following the [Cedar Profile for OAuth 2.0 Rich Authorization Requests](https://datatracker.ietf.org/doc/draft-cecchetti-oauth-rar-cedar/) format:
+This is expressed as a Cedar policy set embedded directly in the OVID token, inspired by [draft-cecchetti-oauth-rar-cedar-02](https://datatracker.ietf.org/doc/draft-cecchetti-oauth-rar-cedar/) (Cedar Profile for OAuth 2.0 Rich Authorization Requests):
+
+> **Key differences from the draft:** OVID embeds mandates in JWT claims rather than OAuth `authorization_details` arrays, adds a required `type` field per RFC 9396, and is designed for agent-to-agent delegation rather than client-to-AS OAuth flows.
 
 ```json
 {
@@ -72,7 +74,7 @@ Payload: {
 
 The mandate is embedded as plain text, not a URL. Sub-agents are ephemeral (often seconds to minutes), may cross domain boundaries, and must not depend on network availability for enforcement. The token is self-contained: any verifier needs only the token and the parent's public key.
 
-Mandate format follows [draft-cecchetti-oauth-rar-cedar](https://datatracker.ietf.org/doc/draft-cecchetti-oauth-rar-cedar/) for interoperability with OAuth 2.0 ecosystems.
+Mandate format is inspired by [draft-cecchetti-oauth-rar-cedar-02](https://datatracker.ietf.org/doc/draft-cecchetti-oauth-rar-cedar/) (Cedar Profile for OAuth 2.0 Rich Authorization Requests). Key differences: OVID embeds mandates in JWT claims rather than OAuth `authorization_details` arrays and is designed for agent-to-agent delegation rather than client-to-AS OAuth flows.
 
 ## Cryptographic Identity
 
