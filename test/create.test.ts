@@ -25,8 +25,12 @@ describe('createOvid', () => {
     expect(ovid.jwt).toContain('.');
     expect(ovid.claims.authorization_details).toHaveLength(1);
     expect(ovid.claims.authorization_details[0].policySet).toBe(testDetail.policySet);
-    expect(ovid.claims.authorization_details[0].ovid_version).toBe('0.3.0');
-    expect(ovid.claims.authorization_details[0].parent_chain).toEqual([]);
+    expect(ovid.claims.authorization_details[0].ovid_version).toBe('0.4.0');
+    // Root tokens have a single self-signed ChainLink (was [] in v0.3.x).
+    const chain = ovid.claims.authorization_details[0].parent_chain as any[];
+    expect(chain).toHaveLength(1);
+    expect(chain[0].sub).toBe(ovid.claims.sub);
+    expect(typeof chain[0].sig).toBe('string');
 
     const result = await verifyOvid(ovid.jwt, keys.publicKey);
     expect(result.valid).toBe(true);
@@ -98,7 +102,12 @@ describe('createOvid', () => {
       ttlSeconds: 1800,
     });
 
-    expect(child.claims.authorization_details[0].parent_chain!.length).toBe(1);
+    // v0.4.0: child's chain has [root_link, child_link] — length 2, not 1.
+    // Last link is the child itself; first is the root.
+    const chain = child.claims.authorization_details[0].parent_chain as any[];
+    expect(chain).toHaveLength(2);
+    expect(chain[0].sub).toBe(parent.claims.sub);
+    expect(chain[1].sub).toBe(child.claims.sub);
     expect(child.claims.parent_ovid).toBe(parent.claims.jti);
     expect(child.claims.authorization_details[0].policySet).toBe(testDetail.policySet);
   });
@@ -185,7 +194,7 @@ describe('createOvid', () => {
       issuer: 'root',
     });
     expect(ovid.claims.authorization_details).toHaveLength(2);
-    expect(ovid.claims.authorization_details[0].ovid_version).toBe('0.3.0');
+    expect(ovid.claims.authorization_details[0].ovid_version).toBe('0.4.0');
     expect(ovid.claims.authorization_details[1].policySet).toBe(wideDetail.policySet);
   });
 });

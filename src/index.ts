@@ -12,4 +12,5 @@ export type {
   OvidToken,
   AuthorizationDetail,
   CedarMandate,
+  ChainLink,
 } from './types.js';
