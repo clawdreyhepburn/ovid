@@ -233,28 +233,148 @@ See **[@clawdreyhepburn/ovid-me](https://github.com/clawdreyhepburn/ovid-me)** (
 
 ## OVID JWT Format
 
+An OVID is a JWT compliant with [RFC 7519](https://datatracker.ietf.org/doc/html/rfc7519), signed with EdDSA (Ed25519), with the dedicated media type `ovid+jwt`. The mandate travels in the `authorization_details` claim ([RFC 9396](https://datatracker.ietf.org/doc/html/rfc9396)) using the `cedar` profile from [draft-cecchetti-oauth-rar-cedar-02](https://datatracker.ietf.org/doc/html/draft-cecchetti-oauth-rar-cedar-02).
+
 ### Header
 ```json
 { "alg": "EdDSA", "typ": "ovid+jwt" }
 ```
 
-### Payload
+| Claim | Required | Notes |
+|-------|----------|-------|
+| `alg` | yes | Always `EdDSA` (Ed25519). |
+| `typ` | yes | Always `ovid+jwt`. Distinguishes OVIDs from generic JWTs at parse time. |
+
+### Payload — root token
+
+A root token (depth 1) is one a top-level agent issues to itself. Its `parent_chain` contains exactly one self-signed `ChainLink`, anchoring the chain to a `trustedRoots` key supplied at verify time.
+
 ```json
 {
   "jti": "clawdrey/agent-7f3a",
   "iss": "clawdrey",
   "sub": "clawdrey/agent-7f3a",
-  "iat": 1711987200,
-  "exp": 1711989000,
-  "ovid_version": "0.2.0",
-  "parent_chain": [],
-  "agent_pub": "base64url-ed25519-public-key",
-  "mandate": {
-    "rarFormat": "cedar",
-    "policySet": "permit(principal, action == Ovid::Action::\"read_file\", resource);"
-  }
+  "iat": 1777561629,
+  "exp": 1777563429,
+  "authorization_details": [
+    {
+      "type": "agent_mandate",
+      "rarFormat": "cedar",
+      "policySet": "permit(principal, action == Ovid::Action::\"read_file\", resource);",
+      "parent_chain": [
+        {
+          "sub": "clawdrey/agent-7f3a",
+          "agent_pub": "AVQXD2Fw6fdYMoFCMsYxTZ-km-Z9ZmmoBnlLIWOdPjo",
+          "iat": 1777561629,
+          "exp": 1777563429,
+          "sig": "KxbNAyLTXYPW6uBXrwPOwrw1h976K8SJZqeNZWF7WmreFEPKTgm0p-4I1m--16x-l16jWcoCPtszJ-pND3HUCw"
+        }
+      ],
+      "agent_pub": "AVQXD2Fw6fdYMoFCMsYxTZ-km-Z9ZmmoBnlLIWOdPjo",
+      "ovid_version": "0.4.0"
+    }
+  ]
 }
 ```
+
+### Payload — delegated token (depth 2)
+
+When a parent agent spawns a child, the child gets a fresh keypair and a new OVID with a `parent_chain` that grows by one link. The new link is signed by the parent's `agent_pub` and binds the child's `sub` and `agent_pub`. Lifetime is attenuated: `iat` and `exp` are clamped inside the parent's window.
+
+```json
+{
+  "jti": "clawdrey/agent-7f3a/reviewer-9d2b",
+  "iss": "clawdrey",
+  "sub": "clawdrey/agent-7f3a/reviewer-9d2b",
+  "iat": 1777561629,
+  "exp": 1777562229,
+  "authorization_details": [
+    {
+      "type": "agent_mandate",
+      "rarFormat": "cedar",
+      "policySet": "permit(principal, action == Ovid::Action::\"read_file\", resource == Ovid::Resource::\"/tmp/report.md\");",
+      "parent_chain": [
+        {
+          "sub": "clawdrey/agent-7f3a",
+          "agent_pub": "AVQXD2Fw6fdYMoFCMsYxTZ-km-Z9ZmmoBnlLIWOdPjo",
+          "iat": 1777561629,
+          "exp": 1777563429,
+          "sig": "KxbNAyLTXYPW6uBXrwPOwrw1h976K8SJZqeNZWF7WmreFEPKTgm0p-4I1m--16x-l16jWcoCPtszJ-pND3HUCw"
+        },
+        {
+          "sub": "clawdrey/agent-7f3a/reviewer-9d2b",
+          "agent_pub": "4-1bUD-aCMszelJA_ZN15hwEWEf_yuU0mz1vq9qFDI4",
+          "iat": 1777561629,
+          "exp": 1777562229,
+          "sig": "pGmrWMsdRy1A_jYjo7SmO1s1TGMd2rvQlvvkP2O1cKGoysbwVpJKcItiDhACTZsT588V7P4I6g_eggqKOYCLCg"
+        }
+      ],
+      "agent_pub": "4-1bUD-aCMszelJA_ZN15hwEWEf_yuU0mz1vq9qFDI4",
+      "ovid_version": "0.4.0"
+    }
+  ]
+}
+```
+
+### Top-level claims
+
+| Claim | Type | Required | Notes |
+|-------|------|----------|-------|
+| `jti` | `string` | yes | JWT ID. By convention the agent's path-style identifier (`<parent>/<child>`). |
+| `iss` | `string` | yes | Issuer ID — the human or organization the root agent serves. |
+| `sub` | `string` | yes | Subject — the agent this token identifies. Equal to `jti` for OVIDs. |
+| `iat` | `number` | yes | Issued-at, unix seconds. Must be `>=` parent's `iat`. |
+| `exp` | `number` | yes | Expiry, unix seconds. Must be `<=` parent's `exp` (lifetime attenuation). |
+| `authorization_details` | `AuthorizationDetail[]` | yes | RFC 9396 carrier for the agent's mandate(s). OVID currently issues exactly one entry. |
+| `parent_ovid` | `string` | legacy only | Pre-0.4.x tokens recorded the parent's `sub` here. Modern verifiers ignore it; the source of truth is `authorization_details[0].parent_chain`. |
+
+### `authorization_details` entry (the mandate)
+
+Each entry is an `AuthorizationDetail` — RFC 9396 with the `cedar` profile from `draft-cecchetti-oauth-rar-cedar-02`.
+
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| `type` | `string` | yes (RFC 9396) | Always `agent_mandate` for OVID. |
+| `rarFormat` | `"cedar"` | yes | Selects the Cedar profile. |
+| `policySet` | `string` | yes | Cedar policy text. The agent's mandate. |
+| `parent_chain` | `ChainLink[]` | yes (v0.4.0+) | Cryptographic delegation chain, root first, leaf last. Pre-0.4 tokens used `string[]` of `sub`s and are accepted via a fallback path but are not cryptographically verifiable. |
+| `agent_pub` | `string` | yes | Base64url Ed25519 public key bound to this token's `sub`. Equal to the leaf link's `agent_pub`. |
+| `ovid_version` | `string` | yes (modern) | OVID library version that minted this token. Verifiers branch on this for shape compatibility. |
+
+### `ChainLink`
+
+Each link is a parent-signed attestation that some `sub` controls some `agent_pub` for some validity window.
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `sub` | `string` | Subject this link represents. |
+| `agent_pub` | `string` | Base64url Ed25519 public key bound to `sub`. |
+| `iat` | `number` | Issued-at. Must be `>=` parent link's `iat`. |
+| `exp` | `number` | Expiry. Must be `<=` parent link's `exp`. |
+| `sig` | `string` | Base64url Ed25519 signature over the canonical bytes below, produced by the **parent** link's `agent_pub`. The root link is self-signed. |
+
+Canonical signed bytes (UTF-8, byte-exact for interop):
+
+```
+ovid-chain-link/v1\n<sub>\n<agent_pub>\n<iat>\n<exp>
+```
+
+`iat` and `exp` are decimal integers with no leading zeros.
+
+### Verification
+
+`verifyOvid(jwt, issuerPublicKey, { trustedRoots, maxChainDepth })` checks, in order:
+
+1. JWT signature (EdDSA) using `issuerPublicKey`.
+2. `typ === "ovid+jwt"`.
+3. `iat`, `exp` against current time.
+4. `parent_chain` is non-empty and bounded by `maxChainDepth` (default 5).
+5. The leaf link's `sub` and `agent_pub` match the token's `sub` and `authorization_details[0].agent_pub`.
+6. Each link's `iat`/`exp` is within its parent's window (lifetime attenuation).
+7. Each non-root link's `sig` verifies under its parent's `agent_pub`.
+8. The root link is self-signed and its `agent_pub` is a member of `trustedRoots`.
+
+A token that fails any check returns `{ valid: false, ... }`. A passing token returns `{ valid: true, principal, mandate, chain, expiresIn }`.
 
 ---
 
