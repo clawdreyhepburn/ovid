@@ -1,7 +1,7 @@
 {
   "name": "@clawdreyhepburn/ovid",
-  "version": "0.4.0",
-  "description": "Cryptographic identity documents for AI agents — Ed25519 signed JWTs with delegation chains",
+  "version": "0.4.1",
+  "description": "Cryptographic identity documents for AI agents \u2014 Ed25519 signed JWTs with delegation chains",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
