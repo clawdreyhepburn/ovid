@@ -17,6 +17,27 @@
 
 ---
 
+## New here? Read this first (no background assumed)
+
+**What is this, in one sentence?** OVID is a small software library that gives each automated AI helper its own tamper-proof **ID badge**, so you always know who a helper is, who created it, what it's allowed to do, and when its access expires.
+
+**Why does that matter?** When an AI assistant is given a big job, it often spawns smaller **helper programs** ("sub-agents") to handle pieces of it. By default, each helper inherits *all* the power of the thing that created it — like handing a house-painter the keys to your house, car, and bank account when they only needed one room. OVID replaces that with a specific, limited, unforgeable badge for each helper.
+
+**A few terms you'll see, in plain English:**
+
+- **Agent / sub-agent** — an automated AI worker. A "sub-agent" is a helper spawned by another agent.
+- **Badge / identity document / "OVID"** — a small signed file that proves who a helper is and what it may do. (OVID = **O**penClaw **V**erifiable **I**dentity **D**ocument.)
+- **Mandate** — the list of allowed actions printed on the badge.
+- **Signing / cryptographic signature** — unforgeable digital math (the same kind that secures websites) that makes a badge impossible to fake or alter.
+- **Chain** — because a helper can spawn its own helper, badges link together in a traceable chain leading back to you, the human.
+- **JWT** — a common, standard file format for signed digital tokens. An OVID badge *is* a JWT with some extra fields. You don't need to know the format to use the library.
+
+**What OVID does and doesn't do:** OVID *issues and verifies* badges (identity + expiry + traceability). It does **not** by itself stop a helper from misbehaving — that enforcement is a separate, companion job. See [How OVID Fits the Stack](#how-ovid-fits-the-stack). Think: OVID prints and validates the ID card; a separate security desk checks it at every door.
+
+The rest of this README goes deeper and is aimed at developers integrating the library. If you just want the OpenClaw plugin that does all of this automatically, see **[@clawdreyhepburn/openclaw-ovid](https://github.com/clawdreyhepburn/openclaw-ovid)**.
+
+---
+
 ## The Problem
 
 When an AI agent spawns a sub-agent, the sub-agent inherits everything — API keys, credentials, tool access, filesystem. The code reviewer has a credit card. The browser worker can send tweets. The research agent can read every file on the machine.
@@ -218,8 +239,14 @@ Issues a new OVID JWT.
 | `ttlSeconds` | `number` | no | `1800` | Time to live |
 | `kid` | `string` | no | — | Key ID for JWT header |
 
-### `verifyOvid(jwt, issuerPublicKey, options?): Promise<OvidResult>`
-Verifies an OVID JWT's signature and claims. Returns `{ valid, principal, mandate, chain, expiresIn }`.
+### `verifyOvid(jwt, options): Promise<OvidResult>`
+Verifies an OVID JWT's signature and full delegation chain. The modern form takes an options object:
+
+```typescript
+verifyOvid(jwt, { trustedRoots: [rootPublicKey], maxChainDepth: 5 });
+```
+
+Returns `{ valid, principal, mandate, chain, expiresIn }`. A legacy single-key overload `verifyOvid(jwt, publicKey)` still works but is deprecated and emits a one-time warning.
 
 ---
 
@@ -271,7 +298,7 @@ A root token (depth 1) is one a top-level agent issues to itself. Its `parent_ch
         }
       ],
       "agent_pub": "AVQXD2Fw6fdYMoFCMsYxTZ-km-Z9ZmmoBnlLIWOdPjo",
-      "ovid_version": "0.4.0"
+      "ovid_version": "0.4.1"
     }
   ]
 }
@@ -310,11 +337,20 @@ When a parent agent spawns a child, the child gets a fresh keypair and a new OVI
         }
       ],
       "agent_pub": "4-1bUD-aCMszelJA_ZN15hwEWEf_yuU0mz1vq9qFDI4",
-      "ovid_version": "0.4.0"
+      "ovid_version": "0.4.1"
     }
   ]
 }
 ```
+
+### Multi-hop chains (depth 3 and beyond)
+
+A helper can spawn its own helper, which can spawn another, and so on. Each hop adds one signed link. The verifier walks the whole chain and enforces two rules **at every step**, not just the first:
+
+- **Lifetime can only shorten** — each link's expiry is clamped inside its parent's.
+- **Each link is signed by its immediate parent's key** — a grandchild's link must be signed by its parent, not by the root. A link signed by the wrong key fails verification.
+
+This means the traceable chain-of-custody holds no matter how deep the delegation goes (up to `maxChainDepth`, default 5). The companion library [`@clawdreyhepburn/ovid-me`](https://github.com/clawdreyhepburn/ovid-me) additionally proves that each hop's *permissions* only ever narrow — a grandchild can never hold more authority than its parent, and that is checked with a formal proof engine at issuance time.
 
 ### Top-level claims
 
@@ -363,7 +399,7 @@ ovid-chain-link/v1\n<sub>\n<agent_pub>\n<iat>\n<exp>
 
 ### Verification
 
-`verifyOvid(jwt, issuerPublicKey, { trustedRoots, maxChainDepth })` checks, in order:
+`verifyOvid(jwt, { trustedRoots, maxChainDepth })` (the preferred form) checks, in order:
 
 1. JWT signature (EdDSA) using `issuerPublicKey`.
 2. `typ === "ovid+jwt"`.
@@ -384,7 +420,7 @@ A token that fails any check returns `{ valid: false, ... }`. A passing token re
 git clone https://github.com/clawdreyhepburn/ovid.git
 cd ovid
 npm install
-npm test        # 12 tests via vitest
+npm test        # 48 tests via vitest
 npm run build   # TypeScript → dist/
 ```
 
@@ -401,7 +437,11 @@ ovid/
 ├── test/
 │   ├── keys.test.ts
 │   ├── create.test.ts
-│   └── verify.test.ts
+│   ├── verify.test.ts
+│   ├── chain.test.ts
+│   ├── renew.test.ts
+│   ├── delegation.test.ts
+│   └── depth3-chain-construction.test.ts   # multi-hop chain soundness
 ├── docs/
 │   └── SECURITY.md
 ├── ARCHITECTURE.md
