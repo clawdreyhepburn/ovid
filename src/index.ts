@@ -2,6 +2,11 @@ export { generateKeypair, exportPublicKeyBase64, importPublicKeyBase64 } from '.
 export { validateCedarSyntax } from './validate.js';
 export { createOvid, renewOvid } from './create.js';
 export { verifyOvid } from './verify.js';
+export {
+  OVID_PROTOCOL_VERSION,
+  CHAIN_PROTOCOL_VERSIONS,
+  isChainProtocolVersion,
+} from './version.js';
 export { EMPTY_AUTHORIZATION_DETAIL, EMPTY_MANDATE } from './types.js';
 export type {
   OvidClaims,

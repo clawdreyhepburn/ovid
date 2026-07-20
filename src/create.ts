@@ -2,6 +2,7 @@ import { SignJWT } from 'jose';
 import { generateKeypair, exportPublicKeyBase64 } from './keys.js';
 import { validateCedarSyntax } from './validate.js';
 import { signChainLink, isChainLinkArray } from './chain.js';
+import { OVID_PROTOCOL_VERSION } from './version.js';
 import type {
   CreateOvidOptions,
   OvidToken,
@@ -13,7 +14,6 @@ import type {
 
 const DEFAULT_TTL = 1800;
 const DEFAULT_MAX_CHAIN_DEPTH = 5;
-const OVID_VERSION = '0.4.0';
 
 export async function createOvid(options: CreateOvidOptions): Promise<OvidToken> {
   const {
@@ -125,7 +125,7 @@ export async function createOvid(options: CreateOvidOptions): Promise<OvidToken>
     ...details[0],
     parent_chain,
     agent_pub: agentPub,
-    ovid_version: OVID_VERSION,
+    ovid_version: OVID_PROTOCOL_VERSION,
   };
 
   const claims: OvidClaims = {

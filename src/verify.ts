@@ -13,6 +13,7 @@ import {
   trustedRootMatches,
   isChainLinkArray,
 } from './chain.js';
+import { isChainProtocolVersion } from './version.js';
 
 const DEFAULT_MAX_CHAIN_DEPTH = 5;
 
@@ -68,7 +69,8 @@ export async function verifyOvid(
     const version = detailPeek?.ovid_version;
     const chainValue = detailPeek?.parent_chain;
 
-    if (version === '0.4.0' && isChainLinkArray(chainValue)) {
+    // Protocol allowlist — NOT package.json version. See src/version.ts (C4).
+    if (isChainProtocolVersion(version) && isChainLinkArray(chainValue)) {
       return await verifyV04(jwt, chainValue, opts.trustedRoots, maxChainDepth);
     }
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { SignJWT, jwtVerify } from 'jose';
+import { SignJWT, jwtVerify, exportJWK } from 'jose';
 import { generateKeypair, exportPublicKeyBase64, importPublicKeyBase64 } from '../src/index.js';
 
 describe('generateKeypair', () => {
@@ -37,5 +37,20 @@ describe('generateKeypair', () => {
     // Verify with imported public key
     const { payload } = await jwtVerify(jwt, importedKey);
     expect(payload.test).toBe(true);
+  });
+
+  it('defaults to non-extractable private keys (C5)', async () => {
+    const kp = await generateKeypair();
+    expect(kp.privateKey.extractable).toBe(false);
+    await expect(exportJWK(kp.privateKey)).rejects.toThrow();
+  });
+
+  it('allows extractable private keys when explicitly requested', async () => {
+    const kp = await generateKeypair({ extractable: true });
+    expect(kp.privateKey.extractable).toBe(true);
+    const jwk = await exportJWK(kp.privateKey);
+    expect(jwk.kty).toBe('OKP');
+    expect(jwk.crv).toBe('Ed25519');
+    expect(typeof jwk.d).toBe('string');
   });
 });

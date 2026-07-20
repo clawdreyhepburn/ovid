@@ -375,7 +375,7 @@ Each entry is an `AuthorizationDetail` — RFC 9396 with the `cedar` profile fro
 | `policySet` | `string` | yes | Cedar policy text. The agent's mandate. |
 | `parent_chain` | `ChainLink[]` | yes (v0.4.0+) | Cryptographic delegation chain, root first, leaf last. Pre-0.4 tokens used `string[]` of `sub`s and are accepted via a fallback path but are not cryptographically verifiable. |
 | `agent_pub` | `string` | yes | Base64url Ed25519 public key bound to this token's `sub`. Equal to the leaf link's `agent_pub`. |
-| `ovid_version` | `string` | yes (modern) | OVID library version that minted this token. Verifiers branch on this for shape compatibility. |
+| `ovid_version` | `string` | yes (modern) | **Wire protocol version** (currently `"0.4.0"`), not the npm package version. Verifiers branch on this for shape compatibility. Bumping `@clawdreyhepburn/ovid` on npm does **not** change this field. See `OVID_PROTOCOL_VERSION` / `CHAIN_PROTOCOL_VERSIONS` in the package exports. |
 
 ### `ChainLink`
 
@@ -478,8 +478,13 @@ Tool call arrives
 
 ## Related Projects
 
-- **[@clawdreyhepburn/ovid-me](https://github.com/clawdreyhepburn/ovid-me)** — Cedar policy evaluation for OVID mandates (enforcement, audit, dashboard)
-- **[@clawdreyhepburn/carapace](https://github.com/clawdreyhepburn/carapace)** — Deployment-level Cedar policy enforcement via OpenClaw's `before_tool_call` hook
+The libraries:
+- **[@clawdreyhepburn/ovid-me](https://github.com/clawdreyhepburn/ovid-me)** — Cedar policy evaluation for OVID mandates (enforcement, audit, dashboard). This library is the companion enforcer to OVID's identity.
+
+The ready-to-use [OpenClaw](https://github.com/openclaw/openclaw) plugins (install these if you just want it to work, no coding):
+- **[@clawdreyhepburn/openclaw-ovid](https://github.com/clawdreyhepburn/openclaw-ovid)** — automatically issues an OVID badge to every sub-agent your assistant spawns (built on *this* library).
+- **[@clawdreyhepburn/openclaw-ovid-me](https://github.com/clawdreyhepburn/openclaw-ovid-me)** — checks those badges on every action and allows/logs/blocks accordingly.
+- **[@clawdreyhepburn/carapace](https://github.com/clawdreyhepburn/carapace)** — the human-set deployment ceiling: the absolute limit no badge can exceed.
 
 ## License
 

@@ -77,9 +77,37 @@ The primary agent's Ed25519 private key is the root of trust for the entire dele
 - **Don't commit keys to git.** Add your key directory to `.gitignore`. Check with `git log --all -p -- '*.key' '*.pem' '*private*'` to make sure nothing slipped through.
 - **Don't transmit keys over unencrypted channels.** Ed25519 private keys are 32 bytes. They're easy to exfiltrate if exposed.
 
+### Protocol version is not package version (v0.4.3+ / C4)
+
+The `ovid_version` claim is a **wire-protocol** switch. Verifiers take the
+nested-signature chain path only when the value is on
+`CHAIN_PROTOCOL_VERSIONS` (currently just `"0.4.0"`). The npm package version
+(`0.4.3`, …) is independent.
+
+**Do not** set `ovid_version` from `package.json`. Bumping the package without
+updating the protocol allowlist would stamp a version verify does not treat as
+chain-capable, and tokens would silently fall off the crypto path (or fail
+closed on the legacy allowlist). When the wire shape actually changes, bump
+`OVID_PROTOCOL_VERSION` **and** add it to `CHAIN_PROTOCOL_VERSIONS` in the same
+commit.
+
+### Non-extractable keys by default (v0.4.3+)
+
+`generateKeypair()` creates **non-extractable** private `CryptoKey`s by default.
+`exportJWK(privateKey)` fails unless the caller passed `{ extractable: true }`.
+
+Use extractable only for the long-lived root/orchestrator key that must be
+persisted to disk (mode `0600`). Child agent keys created inside `createOvid`
+stay non-extractable so they cannot be serialized into spawn task text,
+transcripts, logs, or compaction buffers.
+
+OpenClaw's auto-mint path holds child private keys **in the gateway process
+only** (`ovidBySession` map) for nested chain continuation. The `[OVID_IDENTITY]`
+block delivered to a child contains the JWT + public keys, never a private JWK.
+
 ### Future: Hardware-Backed Keys
 
-Ed25519 is supported by hardware security modules (HSMs) and secure enclaves. A future version of OVID could integrate with platform keystores (macOS Keychain, FIDO2 tokens, TPMs) so the private key never exists in extractable form. This is not implemented today.
+Ed25519 is supported by hardware security modules (HSMs) and secure enclaves. A future version of OVID could integrate with platform keystores (macOS Keychain, FIDO2 tokens, TPMs) so even the root private key never exists in software-extractable form. Child keys are already non-extractable in software as of v0.4.3.
 
 ---
 

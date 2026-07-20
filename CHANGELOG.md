@@ -1,5 +1,36 @@
 # Changelog
 
+## [0.4.3] - 2026-07-20
+
+Security hardening for C4 (protocol vs package version) and C5
+(in-band / extractable private keys).
+
+### C4 — protocol version is not package version
+- New `src/version.ts` exports `OVID_PROTOCOL_VERSION` (`"0.4.0"`),
+  `CHAIN_PROTOCOL_VERSIONS`, and `isChainProtocolVersion()`.
+- `createOvid` stamps **protocol** version into tokens, never
+  `package.json` version.
+- `verifyOvid` takes the nested-signature chain path only when
+  `ovid_version` is on the protocol allowlist — not when it happens
+  to match the npm package semver.
+- Footgun closed: bumping the package to 0.4.3 no longer risks
+  demoting new tokens to legacy (no-chain-crypto) verify.
+
+### C5 — non-extractable keys by default
+- `generateKeypair()` now defaults to **non-extractable** private keys.
+  Callers that must persist a root key to disk need
+  `generateKeypair({ extractable: true })`.
+- Public-key export and in-process signing are unchanged.
+
+### Added
+- `GenerateKeypairOptions.extractable` (default `false`).
+- Public exports: `OVID_PROTOCOL_VERSION`, `CHAIN_PROTOCOL_VERSIONS`,
+  `isChainProtocolVersion`.
+- Tests: protocol≠package; create stamps protocol; unknown version
+  fail-closed; default non-extractable; explicit extractable opt-in.
+- SECURITY.md: non-extractable default + orchestrator-held child keys.
+- README: `ovid_version` documented as protocol, not package.
+
 ## [0.4.0] - 2026-04-19
 
 Security-hardening release. Addresses findings #1, #2, and #10 from the

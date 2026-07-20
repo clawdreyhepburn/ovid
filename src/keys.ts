@@ -1,8 +1,31 @@
 import { generateKeyPair, exportJWK, importJWK } from 'jose';
 import type { KeyPair } from './types.js';
 
-export async function generateKeypair(): Promise<KeyPair> {
-  const { publicKey, privateKey } = await generateKeyPair('EdDSA', { crv: 'Ed25519', extractable: true });
+export interface GenerateKeypairOptions {
+  /**
+   * Whether the private key material can be exported (e.g. via exportJWK).
+   *
+   * Default **false**. Child agent keys must not be serializable into
+   * transcripts, logs, or spawn task text. Only set true when the caller
+   * intentionally needs to persist a root/orchestrator key to disk.
+   */
+  extractable?: boolean;
+}
+
+/**
+ * Generate an Ed25519 keypair for OVID.
+ *
+ * Private keys are **non-extractable by default** (C5). Callers that need
+ * to persist a root key must pass `{ extractable: true }` explicitly.
+ */
+export async function generateKeypair(
+  options: GenerateKeypairOptions = {},
+): Promise<KeyPair> {
+  const extractable = options.extractable === true;
+  const { publicKey, privateKey } = await generateKeyPair('EdDSA', {
+    crv: 'Ed25519',
+    extractable,
+  });
   return { publicKey, privateKey };
 }
 
