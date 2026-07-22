@@ -8,6 +8,29 @@ export {
   isChainProtocolVersion,
 } from './version.js';
 export { EMPTY_AUTHORIZATION_DETAIL, EMPTY_MANDATE } from './types.js';
+export {
+  buildMandate,
+  buildMandateTag,
+  MANDATE_ACTIONS,
+  RESOURCE_KINDS,
+  DEFAULT_MANDATE_ACTIONS,
+  isMandateAction,
+  isResourceKind,
+} from './schema/mandate-builder.js';
+export {
+  OVID_TO_JANS,
+  OPENCLAW_TOOL_TO_ACTION,
+  ovidResourceKind,
+  jansResourceKind,
+} from './schema/vocabulary.js';
+export type {
+  MandateAction,
+  ResourceKind,
+  MandateIntent,
+  GrantIntent,
+  ResourceConstraint,
+  BuildResult,
+} from './schema/mandate-builder.js';
 export type {
   OvidClaims,
   OvidResult,

@@ -250,6 +250,59 @@ Returns `{ valid, principal, mandate, chain, expiresIn }`. A legacy single-key o
 
 ---
 
+## Mandate Builder
+
+Writing raw Cedar inside a spawn task is error-prone. `buildMandate()` compiles a **structured intent** into a Cedar policySet that the OVID-ME evaluator and `cedar-wasm` both accept — so the same mandate is enforceable *and* provable. This is the accurate on-the-fly authoring path: fill a form, not freeverse Cedar.
+
+```typescript
+import { buildMandate, buildMandateTag } from '@clawdreyhepburn/ovid';
+
+const { policySet, summary, warnings } = buildMandate({
+  ttlSeconds: 1800,
+  allow: [
+    { action: 'read',  resource: { type: 'File', pathLike: ['**/workspace/**'] } },
+    { action: 'exec',  resource: { type: 'Shell', in: ['git', 'gh', 'npm'] } },
+    { action: 'fetch', resource: { type: 'API',  in: ['api.github.com'] } },
+  ],
+  forbid: [
+    { action: 'exec', resource: { type: 'Shell', in: ['rm', 'sudo'] } },
+  ],
+});
+// policySet is ready to sign into an OVID mandate; forbid always wins.
+```
+
+Vocabulary (shared across the stack, `src/schema/vocabulary.ts`):
+
+- **Actions:** `read write edit exec fetch search browse send delegate remember recall call_tool summarize`
+- **Resource kinds:** `File Shell Tool WebEndpoint Channel Memory Session` (`API` is accepted and normalized to `WebEndpoint`)
+- **Default (no intent):** `read`, `search`, `summarize`
+
+Grant shapes:
+
+| Intent | Emitted Cedar |
+|---|---|
+| `{ action: 'read' }` | `permit(principal, action == Ovid::Action::"read", resource);` |
+| `{ action: ['read','write'] }` | `... action in [Ovid::Action::"read", Ovid::Action::"write"] ...` |
+| `{ action:'exec', resource:{ type:'Shell', in:['git'] } }` | `... resource == Ovid::Shell::"git"` |
+| `{ action:'read', resource:{ type:'File', pathLike:['/src/*'] } }` | `... resource) when { resource.path like "/src/*" }` |
+| `{ effect:'forbid', ... }` | `forbid(...)` (always wins) |
+
+For spawning sub-agents, `buildMandateTag()` returns a ready-to-prepend block that the `openclaw-ovid` hook parses:
+
+```typescript
+const { tag } = buildMandateTag({ ttlSeconds: 1800, allow: [{ action: 'read' }] });
+// tag =
+// [OVID_TTL:1800]
+// [OVID_MANDATE]
+// permit(principal, action == Ovid::Action::"read", resource);
+// [/OVID_MANDATE]
+await sessions_spawn({ task: `${tag}\n\n${realTask}` });
+```
+
+Ids and path globs are validated against a conservative charset; unsafe values throw rather than emit injectable Cedar. Unknown actions are dropped with a warning. Empty grants compile to an explicit deny-all.
+
+---
+
 ## Mandate Evaluation
 
 **Looking for Cedar policy evaluation, enforcement, audit logging, and a forensics dashboard?**

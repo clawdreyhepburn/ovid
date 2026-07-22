@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.5.0] - 2026-07-22
+
+### Added — shared vocabulary + mandate builder
+- **`src/schema/vocabulary.ts`** — one authorization vocabulary for the whole
+  stack: mandate actions (`read`/`write`/`edit`/`exec`/`fetch`/`search`/`browse`/
+  `send`/`delegate`/`remember`/`recall`/`call_tool`/`summarize`), resource kinds,
+  the safe default action set, an `OVID_TO_JANS` projection (Ovid mandate verb →
+  Carapace `exec_command`/`call_api`/`call_tool`), and the OpenClaw tool→action
+  map used by the runtime mapper. `WebEndpoint`↔`API` normalization helpers.
+- **`buildMandate(intent)`** — compiles a structured intent object into a Cedar
+  policySet the OVID-ME evaluator and cedar-wasm both accept. Emits one
+  statement per resource id / path glob (fallback-parser friendly). Validates
+  ids/globs against a conservative charset (no Cedar injection), drops unknown
+  actions with warnings, compiles empty grants to explicit deny-all.
+- **`buildMandateTag(intent)`** — returns the `[OVID_TTL:n]` + `[OVID_MANDATE]`
+  block ready to prepend to a `sessions_spawn` task.
+- Exported from the package root; 16 new tests.
+
+### Notes
+- This is the "fill a form, not freeverse Cedar" on-the-fly authoring path. The
+  companion evaluator fix (namespace-insensitive resource-type match) ships in
+  `@clawdreyhepburn/ovid-me` 0.4.6 so `Ovid::Shell::"git"` matches a bare
+  `resourceType: "Shell"` request.
+
 ## [0.4.3] - 2026-07-20
 
 Security hardening for C4 (protocol vs package version) and C5
